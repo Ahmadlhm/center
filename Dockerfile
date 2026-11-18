@@ -19,7 +19,7 @@ USER root
 RUN apt-get -o Acquire::Retries=4 -o Acquire::By-Hash=force update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng poppler-utils && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 
-FROM node:24-alpine AS frontend
+FROM node:24-bookworm-slim AS frontend
 WORKDIR /src
 COPY web/package*.json .
 RUN npm ci
