@@ -1,0 +1,109 @@
+name: quran-center
+x-env: &common
+  ASPNETCORE_HTTP_PORTS: "8080"
+  CENTER_ORIGIN: ${CENTER_ORIGIN:-http://localhost:8088}
+  CENTER_ALLOW_HTTP: ${CENTER_ALLOW_HTTP:-true}
+  CENTER_DEMO: ${CENTER_DEMO:-true}
+  CENTER_INTERNAL_KEY: ${CENTER_INTERNAL_KEY:-local-compose-internal-key-change-before-deployment}
+x-backend: &backend
+  build:
+    context: .
+    target: runtime
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks: [backend]
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: center
+      POSTGRES_USER: center_dba
+      POSTGRES_PASSWORD: ${CENTER_DB_ADMIN_PASSWORD:-local-db-admin-replace}
+      IDENTITY_PASSWORD: ${CENTER_IDENTITY_DB_PASSWORD:-local-identity-replace}
+      PEOPLE_PASSWORD: ${CENTER_PEOPLE_DB_PASSWORD:-local-people-replace}
+      EDUCATION_PASSWORD: ${CENTER_EDUCATION_DB_PASSWORD:-local-education-replace}
+      WORK_PASSWORD: ${CENTER_WORK_DB_PASSWORD:-local-work-replace}
+      DOCUMENTS_PASSWORD: ${CENTER_DOCUMENTS_DB_PASSWORD:-local-documents-replace}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deploy/postgres-init.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U center_dba -d center"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  identity:
+    <<: *backend
+    image: quran-center-identity:1.0
+    environment:
+      <<: *common
+      CENTER_SERVICE: identity
+      CENTER_DB: Host=postgres;Database=center;Username=center_identity;Password=${CENTER_IDENTITY_DB_PASSWORD:-local-identity-replace}
+      CENTER_PLATFORM_EMAIL: ${CENTER_PLATFORM_EMAIL:-}
+      CENTER_PLATFORM_PASSWORD: ${CENTER_PLATFORM_PASSWORD:-}
+  people:
+    <<: *backend
+    image: quran-center-people:1.0
+    environment:
+      <<: *common
+      CENTER_SERVICE: people
+      CENTER_DB: Host=postgres;Database=center;Username=center_people;Password=${CENTER_PEOPLE_DB_PASSWORD:-local-people-replace}
+  education:
+    <<: *backend
+    image: quran-center-education:1.0
+    environment:
+      <<: *common
+      CENTER_SERVICE: education
+      CENTER_DB: Host=postgres;Database=center;Username=center_education;Password=${CENTER_EDUCATION_DB_PASSWORD:-local-education-replace}
+  work:
+    <<: *backend
+    image: quran-center-work:1.0
+    environment:
+      <<: *common
+      CENTER_SERVICE: work
+      CENTER_DB: Host=postgres;Database=center;Username=center_work;Password=${CENTER_WORK_DB_PASSWORD:-local-work-replace}
+  documents:
+    <<: *backend
+    image: quran-center-documents:1.0
+    environment:
+      <<: *common
+      CENTER_SERVICE: documents
+      CENTER_DB: Host=postgres;Database=center;Username=center_documents;Password=${CENTER_DOCUMENTS_DB_PASSWORD:-local-documents-replace}
+  import:
+    image: quran-center-ocr:1.0
+    build:
+      context: .
+      target: ocr
+    restart: unless-stopped
+    environment:
+      <<: *common
+      CENTER_SERVICE: import
+    networks: [backend]
+  gateway:
+    <<: *backend
+    image: quran-center-gateway:1.0
+    depends_on: [identity, people, education, work, documents, import]
+    environment:
+      <<: *common
+      CENTER_SERVICE: gateway
+    networks: [backend, frontend]
+  web:
+    image: quran-center-web:1.0
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    depends_on: [gateway]
+    ports:
+      - "${CENTER_BIND:-127.0.0.1}:${CENTER_PORT:-8088}:80"
+    networks: [frontend]
+networks:
+  backend:
+    internal: true
+  frontend:
+volumes:
+  postgres-data:
