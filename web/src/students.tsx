@@ -276,6 +276,8 @@ type StudentData = {
   }[];
   competitions: {
     competition: string;
+    category: string;
+    categoryName: string | null;
     name: string;
     score: number | null;
     rank: number | null;
@@ -431,12 +433,18 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
             )}
           </div>
           <div className="card">
-            <CardHead title="المسابقات" />
+            <CardHead title="المسابقات">
+              {(admin(c) || cgroups.length > 0) &&
+                c.education.competitions.length > 0 && (
+                  <Add onClick={() => setModal("contest")}>إسناد مسابقة</Add>
+                )}
+            </CardHead>
             {data.competitions.length ? (
-              <Table headers={["المسابقة", "الدرجة", "المركز"]}>
-                {data.competitions.map((r, i) => (
-                  <tr key={i}>
+              <Table headers={["المسابقة", "الفئة", "الدرجة", "المركز"]}>
+                {data.competitions.map((r) => (
+                  <tr key={r.competition + r.category}>
                     <td>{r.name}</td>
+                    <td>{r.categoryName ?? "—"}</td>
                     <td>{r.score ?? "—"}</td>
                     <td>{r.rank ?? "—"}</td>
                   </tr>
@@ -531,6 +539,9 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
           )}
         </div>
       )}
+      {modal === "contest" && (
+        <AssignContest c={c} student={id} close={() => setModal("")} />
+      )}
       {modal === "edit" && (
         <StudentForm c={c} student={s} close={() => setModal("")} />
       )}
@@ -616,5 +627,74 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
         </Dialog>
       )}
     </>
+  );
+}
+
+function AssignContest({
+  c,
+  student,
+  close,
+}: {
+  c: Context;
+  student: string;
+  close: () => void;
+}) {
+  const [id, setId] = useState("");
+  const [category, setCategory] = useState("");
+  const choices = c.education.competitions.filter(
+    (contest) =>
+      contest.multiple ||
+      !c.education.entries.some(
+        (e) => e.competition === contest.id && e.student === student,
+      ),
+  );
+  const contest = choices.find((x) => x.id === id);
+  const categories = (contest?.categories ?? []).filter(
+    (cat) =>
+      !c.education.entries.some(
+        (e) =>
+          e.competition === id &&
+          e.category === cat.id &&
+          e.student === student,
+      ),
+  );
+  return (
+    <Dialog
+      title="إسناد مسابقة للطالب"
+      close={close}
+      submit={async () => {
+        if (!id || !category) throw new Error("اختر المسابقة والفئة.");
+        await api(f(c, "/education/competitions/" + id + "/entries"), "PUT", {
+          student,
+          category,
+          score: null,
+          rank: null,
+        });
+        await c.refresh();
+        c.notify("أُسندت المسابقة للطالب");
+      }}
+    >
+      <Field label="المسابقة">
+        <Select
+          options={options(choices)}
+          value={id}
+          onChange={(value) => {
+            setId(value);
+            setCategory("");
+          }}
+          required
+          placeholder="اختر مسابقة"
+        />
+      </Field>
+      <Field label="الفئة">
+        <Select
+          options={options(categories)}
+          value={category}
+          onChange={setCategory}
+          required
+          placeholder="اختر فئة"
+        />
+      </Field>
+    </Dialog>
   );
 }

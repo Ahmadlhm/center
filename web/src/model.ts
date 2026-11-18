@@ -92,6 +92,18 @@ export type MeetingType = {
   lesson: boolean;
   practice: boolean;
 };
+export const tajweedTypes: MeetingType[] = [
+  { key: "theory", name: "نظري", lesson: true, practice: false },
+  { key: "tajweed-practical", name: "عملي", lesson: true, practice: false },
+];
+export const courseRoute = (course: Pick<Course, "id" | "type">) =>
+  (course.type === "recitation" ? "recitation-course/" : "course/") + course.id;
+export type CourseTeacherRequest = {
+  id: Key;
+  requestedBy: Key;
+  teachers: Key[];
+  submittedAt: string;
+};
 export type Course = {
   id: Key;
   name: string;
@@ -318,6 +330,23 @@ export const teacherOf = (ctx: Context, id: Key | null) =>
   ctx.staff.find((x) => x.id === id)?.name ?? "—";
 export const courseOf = (ctx: Context, id: Key | null) =>
   ctx.education.courses.find((x) => x.id === id)?.name ?? "—";
+export function withinUnit(
+  units: Unit[],
+  item: Key | null,
+  parent: Key,
+): boolean {
+  const parents = new Map(units.map((unit) => [unit.id, unit.parent]));
+  const visited = new Set<Key>();
+  for (
+    let current = item;
+    current && !visited.has(current);
+    current = parents.get(current) ?? null
+  ) {
+    if (current === parent) return true;
+    visited.add(current);
+  }
+  return false;
+}
 export function unitPath(units: Unit[], id: Key | null): string {
   if (id === null) return "المركز";
   const unit = units.find((x) => x.id === id);

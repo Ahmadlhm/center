@@ -15,6 +15,7 @@ import {
 import {
   api,
   clock,
+  courseRoute,
   date,
   fmt,
   groupOf,
@@ -80,8 +81,11 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
     m.teachers.includes(c.user.id) && c.center.roles.includes("teacher");
   const canMark = can && (admin(c) || m.attendanceBy === c.user.id);
   const canTeach = can && (admin(c) || m.lessonBy === c.user.id);
-  const canPractice = can && (admin(c) || m.practiceBy === c.user.id);
   const type = data.types.find((t) => t.key === m.kind);
+  const withMemorization = type?.practice ?? false;
+  const canPractice =
+    withMemorization && can && (admin(c) || m.practiceBy === c.user.id);
+  const linkedCourse = c.education.courses.find((x) => x.id === m.course);
   const check = c.work.checkIns.find(
     (x) => x.meeting === id && x.teacher === c.user.id,
   );
@@ -174,7 +178,15 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
           (type?.name ?? "لقاء")
         }
         crumb={
-          <a href={m.group ? "#group/" + m.group : "#course/" + m.course}>
+          <a
+            href={
+              m.group
+                ? "#group/" + m.group
+                : linkedCourse
+                  ? "#" + courseRoute(linkedCourse)
+                  : "#courses"
+            }
+          >
             عودة
           </a>
         }
@@ -233,14 +245,17 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
           value={fmt(marks.filter((x) => !x.status).length)}
           icon={<Clock3 size={20} />}
         />
-        <Summary
-          title="متابعة التسميع"
-          value={fmt(
-            marks.filter((x) => x.practice === "done" || x.practice === "skip")
-              .length,
-          )}
-          icon={<BookOpen size={20} />}
-        />
+        {withMemorization && (
+          <Summary
+            title="متابعة التسميع"
+            value={fmt(
+              marks.filter(
+                (x) => x.practice === "done" || x.practice === "skip",
+              ).length,
+            )}
+            icon={<BookOpen size={20} />}
+          />
+        )}
       </div>
       <div className="card panel">
         <h2>درس اللقاء</h2>
@@ -261,7 +276,10 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                 c.education.courses.filter(
                   (x) =>
                     x.id === m.course ||
-                    (m.group && x.groups.includes(m.group)),
+                    x.id === m.lessonCourse ||
+                    (x.type !== "recitation" &&
+                      m.group &&
+                      x.groups.includes(m.group)),
                 ),
               )}
               placeholder="درس مستقل"
@@ -272,7 +290,11 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
       <div className="card">
         <CardHead
           title="كشف الطلاب"
-          desc="حالة الحضور ومتابعة التسميع لكل طالب."
+          desc={
+            withMemorization
+              ? "حالة الحضور ومتابعة التسميع لكل طالب."
+              : "حالة الحضور لكل طالب."
+          }
         >
           {canMark && (
             <Button
@@ -290,7 +312,13 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
           )}
         </CardHead>
         {marks.length ? (
-          <Table headers={["الطالب", "الحضور", "التسميع", "المقاطع"]}>
+          <Table
+            headers={
+              withMemorization
+                ? ["الطالب", "الحضور", "التسميع", "المقاطع"]
+                : ["الطالب", "الحضور"]
+            }
+          >
             {marks.map((row) => (
               <tr key={row.student}>
                 <td>
@@ -314,54 +342,58 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                     <Badge value={row.status} />
                   )}
                 </td>
-                <td>
-                  {canPractice ? (
-                    <Select
-                      value={row.practice ?? ""}
-                      onChange={(v) => {
-                        if (v === "done" || v === "skip") {
-                          setReading(row.student);
-                          if (v === "skip")
-                            update(row.student, { practice: "skip" });
-                        } else
-                          update(row.student, {
-                            practice: v || null,
-                            readings: [],
-                            note: null,
-                          });
-                      }}
-                      placeholder="غير مرصود"
-                      options={[
-                        { value: "done", name: "تم التسميع" },
-                        { value: "skip", name: "لم يسمّع اليوم" },
-                        { value: "optional", name: "غير مطلوب" },
-                      ]}
-                    />
-                  ) : row.practice === "done" ? (
-                    "تم التسميع"
-                  ) : row.practice === "skip" ? (
-                    "لم يسمّع"
-                  ) : row.practice === "optional" ? (
-                    "غير مطلوب"
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td>
-                  {canPractice ? (
-                    <Button
-                      kind="ghost"
-                      onClick={() => setReading(row.student)}
-                    >
-                      <Plus size={15} />
-                      {row.readings.length
-                        ? fmt(row.readings.length) + " مقاطع"
-                        : "تسجيل التسميع"}
-                    </Button>
-                  ) : (
-                    fmt(row.readings.length)
-                  )}
-                </td>
+                {withMemorization && (
+                  <>
+                    <td>
+                      {canPractice ? (
+                        <Select
+                          value={row.practice ?? ""}
+                          onChange={(v) => {
+                            if (v === "done" || v === "skip") {
+                              setReading(row.student);
+                              if (v === "skip")
+                                update(row.student, { practice: "skip" });
+                            } else
+                              update(row.student, {
+                                practice: v || null,
+                                readings: [],
+                                note: null,
+                              });
+                          }}
+                          placeholder="غير مرصود"
+                          options={[
+                            { value: "done", name: "تم التسميع" },
+                            { value: "skip", name: "لم يسمّع اليوم" },
+                            { value: "optional", name: "غير مطلوب" },
+                          ]}
+                        />
+                      ) : row.practice === "done" ? (
+                        "تم التسميع"
+                      ) : row.practice === "skip" ? (
+                        "لم يسمّع"
+                      ) : row.practice === "optional" ? (
+                        "غير مطلوب"
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      {canPractice ? (
+                        <Button
+                          kind="ghost"
+                          onClick={() => setReading(row.student)}
+                        >
+                          <Plus size={15} />
+                          {row.readings.length
+                            ? fmt(row.readings.length) + " مقاطع"
+                            : "تسجيل التسميع"}
+                        </Button>
+                      ) : (
+                        fmt(row.readings.length)
+                      )}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </Table>

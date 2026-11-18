@@ -122,13 +122,15 @@ public static class Transfers
     public static void MapReports(WebApplication app)
     {
         app.MapGet("/api/centers/{center:guid}/education/report", async (Guid center, HttpContext http, State store,
-            string? kind, DateOnly? from, DateOnly? to, Guid? unit, Guid? group, Guid? course, string? format) =>
+            string? kind, DateOnly? from, DateOnly? to, Guid? unit, Guid? group, Guid? course, Guid? competition, string? format) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
             Rules.Require(actor.Admin || actor.Manager || actor.Teacher, "ليس لديك صلاحية التقارير.", 403);
+            Rules.Require(kind is null or "learning" or "counts" or "courses" or "recitation" or "competitions" or "work", "اختر نوع التقرير.");
+            Rules.Require(kind != "work" || actor.Admin || actor.Manager, "متابعة المعلّمين من صلاحيات الإدارة.", 403);
             var p = store.Read<PeopleData>(Module.People, center);
             var e = store.Read<EducationData>(Module.Education, center);
-            var w = store.Read<WorkData>(Module.Work, center);
+            var w = kind == "work" ? store.Read<WorkData>(Module.Work, center) : Task.FromResult(new WorkData());
             var s = Identity.Staff(store, center);
             await Task.WhenAll(p, e, w, s);
             var people = await p;
@@ -137,18 +139,37 @@ public static class Transfers
             var staff = await s;
             string Person(Guid id) => people.Students.Find(x => x.Id == id)?.Name ?? "—";
             string Teacher(Guid id) => staff.FirstOrDefault(x => x.Id == id)?.Name ?? "—";
-            var end = to ?? Rules.Today(info.TimeZone);
+            var today = Rules.Today(info.TimeZone);
+            var end = to ?? today;
             var start = from ?? end.AddDays(-29);
             Rules.Require(start <= end && end.DayNumber - start.DayNumber <= 3660, "راجع الفترة المحددة.");
-            Rules.Require(unit is null || people.Units.Any(x => x.Id == unit), "الوحدة غير متاحة.");
+            var availableGroups = people.Groups.Select(x => people.GroupAt(x.Id, today)).OfType<Group>()
+                .Where(x => actor.CanSee(people, x)).ToArray();
+            Rules.Require(group is null || availableGroups.Any(x => x.Id == group), "الشعبة خارج صلاحيتك.", 403);
+            Rules.Require(unit is null || (people.Units.Any(x => x.Id == unit) &&
+                (actor.Admin || people.InScope(unit, actor.Units) || availableGroups.Any(x => people.InScope(x.Unit, [unit.Value])))),
+                "الوحدة خارج صلاحيتك.", 403);
+            var allowedCourses = education.Courses.Where(x => actor.Admin || actor.Manager
+                ? Education.CanSeeCourse(actor, people, x)
+                : x.Teachers.Contains(actor.Id)).ToArray();
+            Rules.Require(course is null || allowedCourses.Any(x => x.Id == course), "الدورة خارج صلاحيتك.", 403);
             bool Matching(Group x) => (group is null || x.Id == group) && (unit is null || people.InScope(x.Unit, [unit.Value]));
+            var hasScopeFilter = group != null || unit != null;
+            bool InGroup(Guid student, DateOnly day) => people.Enrollments.Any(x => x.Student == student && x.Active(day) &&
+                people.GroupAt(x.Group, day) is { } target && Matching(target));
             var groups = people.Groups.Select(x => people.GroupAt(x.Id, end)).OfType<Group>().Where(x => x.Active(end) && actor.CanSee(people, x) && Matching(x)).ToArray();
             var enrollments = people.Enrollments.Where(x => x.Active(end) && groups.Any(y => y.Id == x.Group)).ToArray();
-            var meetings = education.Meetings.Where(x => x.Date >= start && x.Date <= end && x.State != "cancelled" &&
-                Education.VisibleMeeting(actor, people, x) && (group is null || x.Group == group) &&
-                (course is null || x.Course == course || x.LessonCourse == course) &&
-                (unit is null || people.InScope(x.Unit, [unit.Value]))).ToArray();
-            var filtered = meetings.Select(x => Education.Filter(actor, people, x, end)).ToArray();
+            var filtered = education.Meetings.Where(x => x.Date >= start && x.Date <= end && x.State != "cancelled" &&
+                    Education.VisibleMeeting(actor, people, x) && (course is null || x.Course == course || x.LessonCourse == course))
+                .Select(x => Education.Filter(actor, people, x, end))
+                .Where(x => !hasScopeFilter || (x.Group is Guid id
+                    ? people.GroupAt(id, x.Date) is { } target && Matching(target)
+                    : x.Roster.Any(student => InGroup(student, x.Date))))
+                .Select(x => hasScopeFilter && x.Group is null ? x with
+                    {
+                        Roster = x.Roster.Where(id => InGroup(id, x.Date)).ToArray(),
+                        Marks = x.Marks.Where(m => InGroup(m.Student, x.Date)).ToArray()
+                    } : x).ToArray();
             var rows = new List<string[]>();
             string[] columns;
             string title;
@@ -161,20 +182,35 @@ public static class Transfers
                 rows.Add(["إجمالي الطلاب الفريدين", "", enrollments.Select(x => x.Student).Distinct().Count().ToString()]);
                 rows.Add(["إجمالي التسجيلات", "", enrollments.Length.ToString()]);
             }
-            else if (kind == "courses")
+            else if (kind is "courses" or "recitation")
             {
-                title = "الدورات والتلاوة";
+                title = kind == "recitation" ? "دورات التلاوة" : "الدورات";
                 columns = ["الدورة", "المستوى", "الحالة", "لقاءات في الفترة", "أكمل", "اجتاز"];
-                foreach (var item in education.Courses.Where(x => Education.CanSeeCourse(actor, people, x) &&
-                    (course is null || x.Id == course) && (group is null || x.Groups.Contains(group.Value)) &&
-                    (unit is null || x.Groups.Any(id => people.GroupAt(id, end) is { } target && people.InScope(target.Unit, [unit.Value])))))
+                foreach (var item in allowedCourses.Where(x => (x.Type == "recitation") == (kind == "recitation") &&
+                    (course is null || x.Id == course) &&
+                    (!hasScopeFilter || x.Groups.Any(id => people.GroupAt(id, end) is { } target && Matching(target)) ||
+                        x.Students.Any(student => InGroup(student, end)) || filtered.Any(m => m.Course == x.Id || m.LessonCourse == x.Id))))
                 {
                     var grades = education.Grades.Where(x => x.Course == item.Id && x.Date >= start && x.Date <= end &&
-                        (actor.Admin || item.Teachers.Contains(actor.Id) || People.CanSeeStudent(actor, people, x.Student, end))).ToArray();
+                        (actor.Admin || item.Teachers.Contains(actor.Id) || People.CanSeeStudent(actor, people, x.Student, end)) &&
+                        (!hasScopeFilter || InGroup(x.Student, x.Date))).ToArray();
                     rows.Add([item.Name, item.Level ?? "—", item.Status == "active" ? "قائمة" : "منتهية",
                         filtered.Count(x => x.Course == item.Id || x.LessonCourse == item.Id).ToString(),
                         grades.Count(x => x.State == "completed").ToString(), grades.Count(x => x.State == "passed").ToString()]);
                 }
+            }
+            else if (kind == "competitions")
+            {
+                title = "المسابقة السنوية";
+                columns = ["المسابقة", "التاريخ", "الفئة", "الطالب", "الدرجة", "المركز"];
+                foreach (var contest in education.Competitions.Where(x => x.Date >= start && x.Date <= end && (competition is null || x.Id == competition)))
+                    foreach (var entry in education.Entries.Where(x => x.Competition == contest.Id && People.CanSeeStudent(actor, people, x.Student, today) &&
+                        (!hasScopeFilter || InGroup(x.Student, contest.Date))))
+                    {
+                        var category = contest.Categories.FirstOrDefault(x => x.Id == entry.Category);
+                        rows.Add([contest.Name, Rules.Iso(contest.Date), category?.Name ?? "—", Person(entry.Student),
+                            entry.Score?.ToString() ?? "—", entry.Rank?.ToString() ?? "—"]);
+                    }
             }
             else if (kind == "work")
             {
@@ -191,11 +227,12 @@ public static class Transfers
                             "manual" => "معتمد يدويًا", "absent" => "غائب", "pending" => "قيد المراجعة", _ => "غير مرصود"
                         }, teacher == meeting.AttendanceBy ? $"{meeting.Marks.Count(x => x.Status != null)}/{meeting.Roster.Length}" : "—",
                         teacher == meeting.LessonBy ? (meeting.Lesson.Length > 0 ? "مسجّل" : "—") : "—",
-                        teacher == meeting.PracticeBy ? meeting.Marks.Count(x => x.Practice is "done" or "skip").ToString() : "—"]);
+                        teacher == meeting.PracticeBy && !Education.IsRecitation(education, meeting) ? meeting.Marks.Count(x => x.Practice is "done" or "skip").ToString() : "—"]);
                     }
                 foreach (var task in work.Tasks.Where(x => x.Due >= start && x.Due <= end && (actor.Admin || x.Teacher == actor.Id ||
                     (actor.Manager && people.Groups.Any(g => g.Id == x.Group && people.InScope(g.Unit, actor.Units)))) &&
-                    (group is null || x.Group == group) && (course is null || x.Course == course)))
+                    (group is null || x.Group == group) && (course is null || x.Course == course) &&
+                    (unit is null || (x.Group is Guid id && people.GroupAt(id, x.Due) is { } target && people.InScope(target.Unit, [unit.Value])))))
                     rows.Add([Rules.Iso(task.Due), Teacher(task.Teacher), "تكليف", task.Title, task.State switch
                     { "approved" => "معتمد", "submitted" => "مسلّم", "returned" => "للاستكمال", _ => task.Due < end ? "متأخر" : "مفتوح" }, "—"]);
             }
@@ -206,11 +243,13 @@ public static class Transfers
                 var allowed = filtered.SelectMany(m => m.Roster.Select(id => (m.Id, id))).ToHashSet();
                 var aggregate = new Dictionary<Guid, int[]>();
                 var seen = people.Students.ToDictionary(x => x.Id, x => x.Baseline.SelectMany(Rules.Verses).ToHashSet());
+                var recitationIds = education.Courses.Where(x => x.Type == "recitation").Select(x => x.Id).ToHashSet();
                 foreach (var m in education.Meetings.Where(x => x.Date <= end && x.State != "cancelled").OrderBy(x => x.Date).ThenBy(x => x.From).ThenBy(x => x.Id))
                     foreach (var mark in m.Marks)
                     {
                         if (!seen.TryGetValue(mark.Student, out var verses)) continue;
-                        var newCount = mark.Readings.Where(x => x.Kind == "new" && x.Result == "passed").SelectMany(x => Rules.Verses(x.Span)).Count(verses.Add);
+                        var readings = m.Course is Guid courseId && recitationIds.Contains(courseId) ? [] : mark.Readings;
+                        var newCount = readings.Where(x => x.Kind == "new" && x.Result == "passed").SelectMany(x => Rules.Verses(x.Span)).Count(verses.Add);
                         if (!allowed.Contains((m.Id, mark.Student))) continue;
                         if (!aggregate.TryGetValue(mark.Student, out var totals)) aggregate[mark.Student] = totals = new int[8];
                         var index = mark.Status switch { "present" => 0, "absent" => 1, "excused" => 2, _ => 3 };
@@ -218,7 +257,7 @@ public static class Transfers
                         var rule = people.Rules.Find(x => x.Version == m.RuleVersion) ?? people.At(m.Date);
                         if (index is 0 or 1 || (index == 2 && rule.CountExcused)) totals[4]++;
                         totals[5] += newCount;
-                        totals[6] += mark.Readings.Count(x => x.Kind == "review");
+                        totals[6] += readings.Count(x => x.Kind == "review");
                     }
                 rows.AddRange(aggregate.OrderBy(x => Person(x.Key)).Select(x => new[] { Person(x.Key), x.Value[0].ToString(), x.Value[1].ToString(),
                     x.Value[2].ToString(), x.Value[3].ToString(), x.Value[4] == 0 ? "—" : $"{x.Value[0] * 100.0 / x.Value[4]:0.0}%",
@@ -229,7 +268,8 @@ public static class Transfers
             {
                 "counts" => "الطالب يُحسب مرة واحدة على مستوى التقرير.",
                 "work" => "الدوام المسجّل يعبّر عن وقت الإثبات أو المراجعة.",
-                "courses" => "تُحسب نتائج الدورات في الفترة حسب تاريخ اعتماد النتيجة.",
+                "courses" or "recitation" => "تُحسب نتائج الدورات في الفترة حسب تاريخ اعتماد النتيجة.",
+                "competitions" => "يحدد تاريخ المسابقة ظهور المشاركات في الفترة المختارة.",
                 _ => "معدل الحضور من الحالات المحسومة حسب قاعدة المركز السارية."
             };
             var updated = DateTimeOffset.UtcNow;

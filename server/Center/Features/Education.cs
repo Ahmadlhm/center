@@ -8,7 +8,7 @@ public static class Education
     public static HashSet<Guid> CourseStudents(Course course, PeopleData people, DateOnly day) =>
         course.Students.Concat(course.Type == "recitation" ? [] : people.Enrollments.Where(e => e.Active(day) && course.Groups.Contains(e.Group)).Select(e => e.Student)).ToHashSet();
     public static bool CanSeeCourse(Actor actor, PeopleData people, Course course) => actor.Admin ||
-        (actor.Teacher && course.Teachers.Contains(actor.Id)) ||
+        (actor.Teacher && (course.Owner == actor.Id || course.Teachers.Contains(actor.Id))) ||
         (actor.Manager && course.Groups.Any(id => people.Groups.Any(g => g.Id == id && people.InScope(g.Unit, actor.Units))));
     public static Meeting Filter(Actor actor, PeopleData people, Meeting row, DateOnly today)
     {
@@ -21,6 +21,17 @@ public static class Education
         (meeting.Group is Guid id && people.Groups.Any(g => g.Id == id && actor.CanSee(people, g))) ||
         (actor.Manager && meeting.Roster.Any(id => people.Enrollments.Any(e => e.Student == id && e.Active(meeting.Date) &&
             people.GroupAt(e.Group, meeting.Date) is { } group && people.InScope(group.Unit, actor.Units))));
+    private static readonly MeetingType[] TajweedTypes =
+        [new("theory", "نظري", true, false), new("tajweed-practical", "عملي", true, false)];
+
+    public static MeetingType[] Types(EducationData data, Course? course) =>
+        course?.Type == "recitation" ? TajweedTypes : (data.Settings ?? Rules.DefaultTeaching).Types;
+
+    public static bool IsRecitation(EducationData data, Meeting meeting) =>
+        data.Courses.Any(x => x.Type == "recitation" && x.Id == meeting.Course);
+
+    private static string TajweedKind(string kind) => kind == "theory" ? kind : "tajweed-practical";
+
     public static void Map(WebApplication app)
     {
         var g = app.MapGroup("/api/centers/{center:guid}/education");
@@ -57,7 +68,11 @@ public static class Education
             var full = People.FullStudent(actor, people, id, today);
             var records = data.Meetings.Where(x => x.State != "cancelled" && x.Marks.Any(mark => mark.Student == id))
                 .OrderBy(x => x.Date).ThenBy(x => x.From)
-                .Select(x => new { x.Id, x.Date, x.Group, x.Course, mark = x.Marks.Single(mark => mark.Student == id) }).ToArray();
+                .Select(x =>
+                {
+                    var mark = x.Marks.Single(mark => mark.Student == id);
+                    return new { x.Id, x.Date, x.Group, x.Course, mark = IsRecitation(data, x) ? mark with { Readings = [], Practice = null } : mark };
+                }).ToArray();
             var unique = student.Baseline.SelectMany(Rules.Verses).ToHashSet();
             var baseline = unique.Count;
             var progress = records.Select(r => new
@@ -71,7 +86,7 @@ public static class Education
                 enrollments = people.Enrollments.Where(x => x.Student == id && (full || people.GroupAt(x.Group, x.Start) is { } group && people.InScope(group.Unit, actor.Units))).Select(x => new { x.Group, x.Start, x.End, name = people.Groups.Find(g => g.Id == x.Group)?.Name }),
                 grades = data.Grades.Where(x => x.Student == id && (full || data.Courses.Any(course => course.Id == x.Course && CanSeeCourse(actor, people, course)))).Select(x => new { x.Course, x.State, x.Date, name = data.Courses.Find(c => c.Id == x.Course)?.Name }),
                 followUps = data.FollowUps.Where(x => x.Student == id && (full || people.GroupAt(x.Group, x.Due) is { } group && people.InScope(group.Unit, actor.Units))),
-                competitions = data.Entries.Where(x => x.Student == id && (full || data.Competitions.Any(c => c.Id == x.Competition && c.Categories.Any(cat => cat.Id == x.Category && people.InScope(cat.Unit, actor.Units))))).Select(x => new { x.Competition, x.Score, x.Rank, name = data.Competitions.Find(c => c.Id == x.Competition)?.Name })
+                competitions = data.Entries.Where(x => x.Student == id && (full || data.Competitions.Any(c => c.Id == x.Competition && c.Categories.Any(cat => cat.Id == x.Category && people.InScope(cat.Unit, actor.Units))))).Select(x => new { x.Competition, x.Category, x.Score, x.Rank, categoryName = data.Competitions.Find(c => c.Id == x.Competition)?.Categories.FirstOrDefault(cat => cat.Id == x.Category)?.Name, name = data.Competitions.Find(c => c.Id == x.Competition)?.Name })
             };
         });
         g.MapPost("/groups/{groupId:guid}/meeting", async (Guid center, Guid groupId, Dated input, State store, HttpContext http) =>
@@ -103,14 +118,16 @@ public static class Education
                 var group = input.Group is Guid groupId ? Rules.Found(people.GroupAt(groupId, input.Date)) : null;
                 var course = input.Course is Guid courseId ? Rules.Found(data.Courses.Find(x => x.Id == courseId)) : null;
                 Rules.Require(actor.Admin || (actor.Teacher && course?.Owner == actor.Id), "ليس لديك صلاحية لجدولة هذا اللقاء.", 403);
-                var teachers = new[] { input.AttendanceBy, input.LessonBy, input.PracticeBy }.Distinct().ToArray();
+                var type = Types(data, course).FirstOrDefault(x => x.Key == input.Kind);
+                Rules.Require(type != null, "نوع اللقاء غير متاح لهذه الدورة.");
+                var practiceBy = type!.Practice ? input.PracticeBy : input.LessonBy;
+                var teachers = new[] { input.AttendanceBy, input.LessonBy, practiceBy }.Distinct().ToArray();
                 Rules.Require(teachers.All(id => staff.Any(x => x.Id == id && x.Active && x.Roles.Contains("teacher")) &&
-                    (actor.Admin || course?.Teachers.Contains(id) == true)), "اختر المعلّمين المكلّفين.");
-                Rules.Require((data.Settings ?? Rules.DefaultTeaching).Types.Any(x => x.Key == input.Kind), "نوع اللقاء غير متاح.");
+                    (course is null || course.Teachers.Contains(id))), "اختر المعلّمين المعتمدين لهذا اللقاء.");
                 var roster = group is not null ? people.Enrollments.Where(x => x.Group == group.Id && x.Active(input.Date)).Select(x => x.Student).Distinct().ToArray()
                     : CourseStudents(course!, people, input.Date).ToArray();
                 var meeting = Build(input.Group, input.Course, input.Date, input.From, input.To, input.Kind, input.AttendanceBy, input.LessonBy,
-                    input.PracticeBy, teachers, roster, group?.Unit, people.At(input.Date).Version);
+                    practiceBy, teachers, roster, group?.Unit, people.At(input.Date).Version);
                 if (input.Replaces is Guid previous)
                 {
                     var old = Rules.Found(data.Meetings.Find(x => x.Id == previous && x.Group == input.Group && x.Course == input.Course));
@@ -155,8 +172,14 @@ public static class Education
             var meeting = Rules.Found(data.Meetings.Find(x => x.Id == id));
             Rules.Require(VisibleMeeting(actor, people, meeting), "اللقاء خارج صلاحيتك.", 403);
             meeting = Filter(actor, people, meeting, Rules.Today(info.TimeZone));
+            var course = data.Courses.Find(c => c.Id == meeting.Course);
+            if (course?.Type == "recitation") meeting = meeting with
+            {
+                Kind = TajweedKind(meeting.Kind),
+                Marks = meeting.Marks.Select(x => x with { Readings = [], Practice = null }).ToArray()
+            };
             return new { meeting, students = people.Students.Where(x => meeting.Roster.Contains(x.Id)).Select(x => new { x.Id, x.Name, x.Number }),
-                types = (data.Settings ?? Rules.DefaultTeaching).Types };
+                types = Types(data, course) };
         });
         g.MapPut("/meetings/{id:guid}", async (Guid center, Guid id, SaveMeeting input, State store, HttpContext http) =>
         {
@@ -173,7 +196,10 @@ public static class Education
                 Rules.Require(actor.Admin || DateTimeOffset.UtcNow <= cutoff, "انتهت مهلة الرصد. تواصل مع المدير.", 403);
                 var mayMark = actor.Admin || old.AttendanceBy == actor.Id;
                 var mayTeach = actor.Admin || old.LessonBy == actor.Id;
-                var mayPractice = actor.Admin || old.PracticeBy == actor.Id;
+                var recitation = IsRecitation(data, old);
+                var type = Rules.Found(Types(data, data.Courses.Find(c => c.Id == old.Course)).FirstOrDefault(x => x.Key == (recitation ? TajweedKind(old.Kind) : old.Kind)));
+                var mayPractice = type.Practice && (actor.Admin || old.PracticeBy == actor.Id);
+                Rules.Require(!recitation || input.Marks.All(x => x.Practice is null && x.Readings.Length == 0), "لقاءات التجويد ترصد الحضور والدرس النظري أو العملي.");
                 Rules.Require(input.Marks.Select(x => x.Student).Distinct().Count() == input.Marks.Length && input.Marks.All(x => old.Roster.Contains(x.Student)), "كشف الطلاب غير صالح.");
                 var submitted = input.Marks.ToDictionary(x => x.Student);
                 var marks = old.Marks.Select(previous =>
@@ -195,11 +221,11 @@ public static class Education
                 var lessonCourse = mayTeach ? input.LessonCourse : old.LessonCourse;
                 Rules.Require(lesson.Length <= 10000, "اختصر نص الدرس.");
                 if (lessonCourse.HasValue) Rules.Require(data.Courses.Any(x => x.Id == lessonCourse &&
-                    (x.Id == old.Course || (old.Group.HasValue && x.Groups.Contains(old.Group.Value)))), "الدورة غير متاحة لهذا اللقاء.");
-                var type = Rules.Found((data.Settings ?? Rules.DefaultTeaching).Types.FirstOrDefault(x => x.Key == old.Kind));
+                    (x.Id == old.Course || x.Id == old.LessonCourse ||
+                        (x.Type != "recitation" && old.Group.HasValue && x.Groups.Contains(old.Group.Value)))), "الدورة غير متاحة لهذا اللقاء.");
                 var complete = marks.All(x => x.Status is not null && (!type.Practice || x.Status != "present" || x.Practice is not null)) &&
                     (!type.Lesson || lesson.Length > 0);
-                Rules.Require(!input.Finalize || complete, "استكمل بيانات الحضور والدرس والتسميع قبل الاعتماد.");
+                Rules.Require(!input.Finalize || complete, type.Practice ? "استكمل بيانات الحضور والدرس والتسميع قبل الاعتماد." : "استكمل بيانات الحضور والدرس قبل الاعتماد.");
                 var revised = old.State == "final";
                 var reason = revised ? Rules.Required(input.Reason, 500) : null;
                 Rules.Require(!revised || complete, "يجب أن يظل الكشف مكتملًا بعد التصحيح.");
@@ -220,7 +246,7 @@ public static class Education
             return await store.Change<EducationData, MeetingSettings>(Module.Education, center, data =>
             {
                 var previous = (data.Settings ?? Rules.DefaultTeaching).Types;
-                Rules.Require(data.Meetings.All(m => input.Types.Contains(previous.First(x => x.Key == m.Kind))) &&
+                Rules.Require(data.Meetings.All(m => IsRecitation(data, m) || input.Types.Contains(previous.First(x => x.Key == m.Kind))) &&
                     data.Courses.All(c => c.Level is null || input.Levels.Contains(c.Level)), "الأنواع والمستويات المستخدمة في السجلات تبقى معتمدة. أضف نوعًا أو مستوى جديدًا.");
                 data.Settings = input;
                 data.Audit.Log(actor, "education.settings", center);
@@ -228,6 +254,7 @@ public static class Education
             });
         });
         Courses.Map(g);
+        Notifications.Map(g);
     }
     public static Meeting ForGroup(Group group, DateOnly day, PeopleData people, EducationData data)
     {

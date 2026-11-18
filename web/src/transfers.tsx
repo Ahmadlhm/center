@@ -6,7 +6,17 @@ import {
   ScanLine,
   Trash2,
 } from "lucide-react";
-import { api, fmt, go, message, offset, unitPath, type Context } from "./model";
+import {
+  api,
+  fmt,
+  go,
+  message,
+  offset,
+  unitPath,
+  withinUnit,
+  active,
+  type Context,
+} from "./model";
 import {
   Button,
   CardHead,
@@ -34,12 +44,56 @@ export function Reports({ c }: { c: Context }) {
   const [unit, setUnit] = useState("");
   const [group, setGroup] = useState("");
   const [course, setCourse] = useState("");
+  const [contest, setContest] = useState("");
   const [from, setFrom] = useState(offset(c.people.today, -6));
   const [to, setTo] = useState(c.people.today);
   const [report, setReport] = useState<Report>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [generated, setGenerated] = useState("");
+  const isManagement = c.center.roles.some(
+    (role) => role === "admin" || role === "manager",
+  );
+  const reportGroups = c.people.groups.filter(
+    (g) => isManagement || g.teacher === c.user.id,
+  );
+  const units = c.people.units.filter(
+    (u) =>
+      isManagement ||
+      reportGroups.some((g) => withinUnit(c.people.units, g.unit, u.id)),
+  );
+  const groups = reportGroups.filter(
+    (g) => !unit || withinUnit(c.people.units, g.unit, unit),
+  );
+  const courses = c.education.courses.filter(
+    (x) =>
+      (isManagement || x.teachers.includes(c.user.id)) &&
+      (type === "recitation"
+        ? x.type === "recitation"
+        : type !== "courses" || x.type !== "recitation") &&
+      ((!unit && !group) ||
+        groups.some(
+          (g) =>
+            (!group || g.id === group) &&
+            (x.groups.includes(g.id) ||
+              c.people.enrollments.some(
+                (e) =>
+                  e.group === g.id &&
+                  active(e, to) &&
+                  x.students.includes(e.student),
+              )),
+        )),
+  );
+  function changeType(value: string) {
+    setType(value);
+    setCourse("");
+    setContest("");
+    if (value === "competitions" && c.education.competitions.length > 0) {
+      const dates = c.education.competitions.map((x) => x.date).sort();
+      setFrom(dates[0]);
+      setTo(dates[dates.length - 1]);
+    }
+  }
   const query = new URLSearchParams({
     kind: type,
     from: type === "counts" ? to : from,
@@ -47,7 +101,14 @@ export function Reports({ c }: { c: Context }) {
   });
   if (unit) query.set("unit", unit);
   if (group) query.set("group", group);
-  if (course && type !== "counts") query.set("course", course);
+  if (
+    course &&
+    courses.some((x) => x.id === course) &&
+    type !== "counts" &&
+    type !== "competitions"
+  )
+    query.set("course", course);
+  if (contest && type === "competitions") query.set("competition", contest);
   const path = f(c, "/education/report") + "?" + query.toString();
   async function load() {
     setError("");
@@ -83,11 +144,15 @@ export function Reports({ c }: { c: Context }) {
               options={[
                 { value: "learning", name: "الحضور وإنجاز الحفظ" },
                 { value: "counts", name: "أعداد الشعب والطلاب" },
-                { value: "work", name: "متابعة المعلّمين" },
-                { value: "courses", name: "الدورات والتلاوة" },
+                ...(isManagement
+                  ? [{ value: "work", name: "متابعة المعلّمين" }]
+                  : []),
+                { value: "courses", name: "الدورات" },
+                { value: "recitation", name: "دورات التلاوة" },
+                { value: "competitions", name: "المسابقة السنوية" },
               ]}
               value={type}
-              onChange={setType}
+              onChange={changeType}
             />
           </Field>
           {type !== "counts" && (
@@ -110,28 +175,45 @@ export function Reports({ c }: { c: Context }) {
           </Field>
           <Field label="الوحدة">
             <Select
-              options={c.people.units.map((x) => ({
+              options={units.map((x) => ({
                 value: x.id,
                 name: unitPath(c.people.units, x.id),
               }))}
               value={unit}
-              onChange={setUnit}
+              onChange={(value) => {
+                setUnit(value);
+                setGroup("");
+                setCourse("");
+              }}
               placeholder="جميع الوحدات"
             />
           </Field>
           <Field label="الشعبة">
             <Select
-              options={options(c.people.groups)}
+              options={options(groups)}
               value={group}
-              onChange={setGroup}
+              onChange={(value) => {
+                setGroup(value);
+                setCourse("");
+              }}
               placeholder="جميع الشعب"
             />
           </Field>
-          {type !== "counts" && (
-            <Field label="الدورة">
+          {type === "competitions" && (
+            <Field label="المسابقة">
               <Select
-                options={options(c.education.courses)}
-                value={course}
+                options={options(c.education.competitions)}
+                value={contest}
+                onChange={setContest}
+                placeholder="جميع المسابقات"
+              />
+            </Field>
+          )}
+          {type !== "counts" && type !== "competitions" && (
+            <Field label={type === "recitation" ? "دورة التلاوة" : "الدورة"}>
+              <Select
+                options={options(courses)}
+                value={courses.some((x) => x.id === course) ? course : ""}
                 onChange={setCourse}
                 placeholder="جميع الدورات"
               />

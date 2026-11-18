@@ -8,6 +8,7 @@ import {
   groupOf,
   message,
   studentOf,
+  tajweedTypes,
   type Group,
   type Context,
   type Certificate,
@@ -34,6 +35,7 @@ export function MeetingForm({
   replaces,
   defaults,
   teachers,
+  recitation = false,
 }: {
   c: Context;
   group?: string;
@@ -42,6 +44,7 @@ export function MeetingForm({
   replaces?: string;
   defaults?: Group;
   teachers?: string[];
+  recitation?: boolean;
 }) {
   const entries = options(
     c.staff.filter(
@@ -51,7 +54,11 @@ export function MeetingForm({
         (!teachers || teachers.includes(x.id)),
     ),
   );
-  const [kind, setKind] = useState(c.education.settings.types[0]?.key ?? "");
+  const meetingTypes = recitation ? tajweedTypes : c.education.settings.types;
+  const [kind, setKind] = useState(meetingTypes[0]?.key ?? "");
+  const withMemorization = meetingTypes.some(
+    (x) => x.key === kind && x.practice,
+  );
   const [lead, setLead] = useState(
     defaults?.teacher ?? entries[0]?.value ?? "",
   );
@@ -72,7 +79,7 @@ export function MeetingForm({
           kind,
           attendanceBy: lead,
           lessonBy: lesson || lead,
-          practiceBy: practice || lead,
+          practiceBy: withMemorization ? practice || lead : lesson || lead,
         });
         await c.refresh();
         c.notify("جُدول اللقاء");
@@ -90,7 +97,7 @@ export function MeetingForm({
         </Field>
         <Field label="نوع اللقاء">
           <Select
-            options={c.education.settings.types.map((x) => ({
+            options={meetingTypes.map((x) => ({
               value: x.key,
               name: x.name,
             }))}
@@ -123,7 +130,7 @@ export function MeetingForm({
             required
           />
         </Field>
-        <Field label="مسؤول الدرس">
+        <Field label={recitation ? "مسؤول لقاء التجويد" : "مسؤول الدرس"}>
           <Select
             options={entries}
             value={lesson}
@@ -131,14 +138,16 @@ export function MeetingForm({
             placeholder="مسؤول الحضور"
           />
         </Field>
-        <Field label="مسؤول التسميع">
-          <Select
-            options={entries}
-            value={practice}
-            onChange={setPractice}
-            placeholder="مسؤول الحضور"
-          />
-        </Field>
+        {withMemorization && (
+          <Field label="مسؤول التسميع">
+            <Select
+              options={entries}
+              value={practice}
+              onChange={setPractice}
+              placeholder="مسؤول الحضور"
+            />
+          </Field>
+        )}
       </div>
     </Dialog>
   );

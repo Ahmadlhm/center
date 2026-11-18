@@ -58,6 +58,8 @@ public record Meeting(Guid Id, Guid? Group, Guid? Course, DateOnly Date, TimeOnl
     Guid? LessonCourse = null, Guid? Replaces = null, Guid RuleVersion = default);
 public record Course(Guid Id, string Name, string Type, string? Level, Guid Owner, Guid[] Teachers, Guid[] Groups, Guid[] Students,
     string Status, Guid? Commission, string Criterion = "manual");
+public record CourseTeacherRequest(Guid Id, Guid Course, Guid RequestedBy, Guid[] Teachers, DateTimeOffset SubmittedAt);
+public record Notice(Guid Id, Guid Recipient, string Text, string Route, DateTimeOffset CreatedAt, bool Read = false);
 public record Commission(Guid Id, string Title, Guid Teacher, Guid[] Groups, string State);
 public record Grade(Guid Course, Guid Student, string State, DateOnly Date, Guid By);
 public record FollowUp(Guid Id, Guid Student, Guid Group, string Text, DateOnly Due, bool Done, Guid By);
@@ -70,6 +72,8 @@ public sealed class EducationData
 {
     public List<Meeting> Meetings { get; init; } = [];
     public List<Course> Courses { get; init; } = [];
+    public List<CourseTeacherRequest> CourseTeacherRequests { get; init; } = [];
+    public List<Notice> Notifications { get; init; } = [];
     public List<Commission> Commissions { get; init; } = [];
     public List<Grade> Grades { get; init; } = [];
     public List<FollowUp> FollowUps { get; init; } = [];

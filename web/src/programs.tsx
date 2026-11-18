@@ -16,6 +16,8 @@ import {
   message,
   studentOf,
   teacherOf,
+  courseRoute,
+  type CourseTeacherRequest,
   uid,
   unitPath,
   type Category,
@@ -135,7 +137,7 @@ export function Courses({
               </div>
               <div className="eyebrow">{r.level ?? typeLabel(r.type)}</div>
               <h2>
-                <a href={"#course/" + r.id}>{r.name}</a>
+                <a href={"#" + courseRoute(r)}>{r.name}</a>
               </h2>
               <div className="group-meta">
                 {r.teachers.map((x) => teacherOf(c, x)).join("، ")}
@@ -145,7 +147,7 @@ export function Courses({
                   "طلاب من المركز"}
               </p>
               <div className="group-foot">
-                <a href={"#course/" + r.id}>
+                <a href={"#" + courseRoute(r)}>
                   تفاصيل الدورة <ChevronLeft size={16} />
                 </a>
               </div>
@@ -233,11 +235,13 @@ function CourseForm({
   c,
   recitation,
   course,
+  request,
   close,
 }: {
   c: Context;
   recitation?: boolean;
   course?: Course;
+  request?: CourseTeacherRequest | null;
   close: () => void;
 }) {
   const [type, setType] = useState(
@@ -246,12 +250,22 @@ function CourseForm({
   const [level, setLevel] = useState(
     course?.level ?? c.education.settings.levels[0] ?? "",
   );
-  const [teachers, setTeachers] = useState(course?.teachers ?? []);
+  const isAdmin = admin(c);
+  const [primary, setPrimary] = useState(
+    course?.owner ?? (isAdmin ? "" : c.user.id),
+  );
+  const [second, setSecond] = useState(
+    ((isAdmin ? null : request?.teachers) ?? course?.teachers)?.find(
+      (id) => id !== primary,
+    ) ?? "",
+  );
+  const activeTeachers = c.staff.filter(
+    (x) => x.active && x.roles.includes("teacher"),
+  );
   const [groups, setGroups] = useState(course?.groups ?? []);
   const [students, setStudents] = useState(course?.students ?? []);
   const [commission, setCommission] = useState(course?.commission ?? "");
   const [filter, setFilter] = useState("");
-  const isAdmin = admin(c);
   const assigned = c.education.commissions.find((x) => x.id === commission);
   const eligible = c.people.students.filter(
     (x) =>
@@ -273,7 +287,7 @@ function CourseForm({
           name: val(form, "name"),
           type,
           level: type === "recitation" ? level : null,
-          teachers: isAdmin ? teachers : [c.user.id],
+          teachers: [primary, second].filter(Boolean),
           groups: canEditGroups
             ? groups
             : (assigned?.groups ?? course?.groups ?? []),
@@ -283,8 +297,17 @@ function CourseForm({
           commission: commission || null,
         });
         await c.refresh();
-        c.notify("حُفظت الدورة");
-        go("course/" + id);
+        const changed =
+          !course ||
+          course.teachers.length !== (second ? 2 : 1) ||
+          !course.teachers.includes(primary) ||
+          (!!second && !course.teachers.includes(second));
+        c.notify(
+          !isAdmin && changed
+            ? "أُرسل طلب إسناد المعلّمين للإدارة"
+            : "حُفظت الدورة",
+        );
+        go(courseRoute({ id, type }));
       }}
     >
       <div className="form-grid">
@@ -366,18 +389,31 @@ function CourseForm({
               />
             </div>
           ))}
-        {isAdmin && (
-          <div className="field wide">
-            <span>المعلّمون المكلّفون</span>
-            <Checks
-              options={options(
-                c.staff.filter((x) => x.active && x.roles.includes("teacher")),
-              )}
-              value={teachers}
-              onChange={setTeachers}
+        <Field label="المعلّم الأساسي">
+          {course || !isAdmin ? (
+            <input readOnly value={teacherOf(c, primary)} />
+          ) : (
+            <Select
+              options={options(activeTeachers)}
+              value={primary}
+              required
+              placeholder="اختر معلّمًا"
+              onChange={(id) => {
+                setPrimary(id);
+                if (second === id) setSecond("");
+              }}
             />
-          </div>
-        )}
+          )}
+        </Field>
+        <Field label="معلّم ثانٍ">
+          <Select
+            options={options(activeTeachers.filter((x) => x.id !== primary))}
+            value={second}
+            onChange={setSecond}
+            placeholder="معلّم واحد"
+          />
+        </Field>
+        {!isAdmin && <p className="wide">يتفعّل الإسناد بعد موافقة الإدارة.</p>}
         {isAdmin && type === "recitation" && (
           <div className="field wide">
             <span>المشاركون ({students.length})</span>
@@ -401,6 +437,7 @@ function CourseForm({
 }
 type CourseData = {
   course: Course;
+  teacherRequest: CourseTeacherRequest | null;
   students: { id: string; name: string; number: string }[];
   meetings: Meeting[];
   grades: { student: string; state: string; date: string }[];
@@ -424,6 +461,8 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
       <Empty title="جارٍ تحميل الدورة…" />
     );
   const course = data.course;
+  const recitation = course.type === "recitation";
+  const request = data.teacherRequest;
   const canTeach = admin(c) || course.teachers.includes(c.user.id);
   const canEdit = admin(c) || course.owner === c.user.id;
   return (
@@ -437,7 +476,7 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
         }
         crumb={
           <a href={course.type === "recitation" ? "#recitation" : "#courses"}>
-            الدورات
+            {recitation ? "دورات التلاوة" : "الدورات"}
           </a>
         }
       >
@@ -447,19 +486,57 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
             تعديل الدورة
           </Button>
         )}
-        {canEdit && <Add onClick={() => setModal("meeting")}>جدولة لقاء</Add>}
+        {canEdit && course.teachers.length > 0 && (
+          <Add onClick={() => setModal("meeting")}>جدولة لقاء</Add>
+        )}
       </PageHead>
       {error && <ErrorBox>{error}</ErrorBox>}
+      {request && (
+        <section className="card">
+          <CardHead
+            title="طلب إسناد المعلّمين"
+            desc={request.teachers.map((x) => teacherOf(c, x)).join("، ")}
+          >
+            {admin(c) ? (
+              <div className="actions">
+                <Button onClick={() => setModal("approve")}>
+                  اعتماد الإسناد
+                </Button>
+                <Button kind="outline" onClick={() => setModal("reject")}>
+                  رفض الإسناد
+                </Button>
+              </div>
+            ) : (
+              <Badge value="pending" text="بانتظار موافقة الإدارة" />
+            )}
+          </CardHead>
+        </section>
+      )}
+      {!request && !course.teachers.length && (
+        <p className="notice">
+          أرسل طلب إسناد من «تعديل الدورة» لتفعيل الجدولة.
+        </p>
+      )}
       <div className="card">
-        <CardHead title="لقاءات الدورة" />
+        <CardHead title={recitation ? "لقاءات التلاوة" : "لقاءات الدورة"} />
         {data.meetings.length ? (
-          <Table headers={["الموعد", "الوقت", "الحالة", "الدرس", ""]}>
+          <Table
+            headers={[
+              "الموعد",
+              "الوقت",
+              ...(recitation ? ["نوع اللقاء"] : []),
+              "الحالة",
+              "الدرس",
+              "",
+            ]}
+          >
             {data.meetings.map((m) => (
               <tr key={m.id}>
                 <td>{date(m.date)}</td>
                 <td dir="ltr">
                   {clock(m.from)} – {clock(m.to)}
                 </td>
+                {recitation && <td>{m.kind === "theory" ? "نظري" : "عملي"}</td>}
                 <td>
                   <Badge value={m.state} />
                 </td>
@@ -532,15 +609,50 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
         )}
       </div>
       {modal === "edit" && (
-        <CourseForm c={c} course={course} close={() => setModal("")} />
+        <CourseForm
+          c={c}
+          course={course}
+          request={request}
+          close={() => setModal("")}
+        />
       )}
       {modal === "meeting" && (
         <MeetingForm
           c={c}
           course={course.id}
           teachers={course.teachers}
+          recitation={recitation}
           close={() => setModal("")}
         />
+      )}
+      {request && (modal === "approve" || modal === "reject") && (
+        <Dialog
+          title={
+            modal === "approve" ? "اعتماد إسناد المعلّمين" : "رفض إسناد المعلّمين"
+          }
+          close={() => setModal("")}
+          submit={async (form) => {
+            await api(
+              f(c, "/education/courses/" + course.id + "/teachers/decision"),
+              "POST",
+              {
+                request: request.id,
+                approve: modal === "approve",
+                reason: val(form, "reason") || null,
+              },
+            );
+            await c.refresh();
+            c.notify(modal === "approve" ? "اعتُمد الإسناد" : "رُفض الإسناد");
+          }}
+        >
+          {modal === "reject" ? (
+            <Field label="سبب الرفض">
+              <textarea name="reason" required />
+            </Field>
+          ) : (
+            <p>{request.teachers.map((x) => teacherOf(c, x)).join("، ")}</p>
+          )}
+        </Dialog>
       )}
       {modal === "grade" && (
         <Dialog

@@ -1,3 +1,4 @@
+import { InboxButton } from "./inbox";
 import React, { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AdminMfa } from "./admin-mfa";
 import { createRoot } from "react-dom/client";
@@ -561,6 +562,12 @@ function Workspace({
   }, [hash]);
   const [raw = "", id = ""] = hash.split("/");
   const route = raw || (!isManager && isTeacher ? "groups" : "home");
+  const recitationDetail =
+    route === "recitation-course" ||
+    (route === "course" &&
+      data?.education.courses.some(
+        (x) => x.id === id && x.type === "recitation",
+      ));
   const nav = sections.map((s) => ({
     ...s,
     items: s.items
@@ -582,7 +589,8 @@ function Workspace({
         group: "لوحة الشعبة",
         student: "ملف الطالب",
         meeting: "كشف اللقاء",
-        course: "تفاصيل الدورة",
+        course: recitationDetail ? "تفاصيل دورة التلاوة" : "تفاصيل الدورة",
+        "recitation-course": "تفاصيل دورة التلاوة",
         import: "استيراد الطلاب",
         passkey: "مفتاح المرور",
       } as Record<string, string>
@@ -606,6 +614,7 @@ function Workspace({
       courses: () => <Courses c={ctx} />,
       recitation: () => <Courses c={ctx} recitation />,
       course: () => <CourseDetail c={ctx} id={id} />,
+      "recitation-course": () => <CourseDetail c={ctx} id={id} />,
       contests: () => <Contests c={ctx} />,
       reports: () => <Reports c={ctx} />,
       staff: () => (isAdmin ? <StaffPage c={ctx} /> : <Empty />),
@@ -673,7 +682,10 @@ function Workspace({
                     (key === "groups" &&
                       ["group", "meeting"].includes(route)) ||
                     (key === "students" && route === "student") ||
-                    (key === "courses" && route === "course")
+                    (key === "courses" &&
+                      route === "course" &&
+                      !recitationDetail) ||
+                    (key === "recitation" && recitationDetail)
                       ? "selected"
                       : ""
                   }
@@ -711,6 +723,7 @@ function Workspace({
             <strong>{current}</strong>
           </div>
           <div className="top-actions">
+            <InboxButton key={center.id} center={center} refresh={refresh} />
             <button
               className="icon-button search-trigger"
               aria-label="البحث في الطلاب والشعب"

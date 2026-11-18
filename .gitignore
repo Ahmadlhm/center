@@ -16,3 +16,6 @@ test-results/
 *.jks
 *.p12
 *.mobileprovision
+
+/tufuli-arabic-demo.zip
+/web/public/fonts/tufuli-*

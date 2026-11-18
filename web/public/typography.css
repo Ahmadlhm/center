@@ -1,0 +1,21 @@
+@font-face {
+  font-family: "Tufuli Arabic";
+  src:
+    local("Tufuli Arabic Regular"),
+    url("/fonts/tufuli-regular.woff2") format("woff2"),
+    url("/fonts/tufuli-regular.otf") format("opentype");
+  font-weight: 100 500;
+  font-display: swap;
+  unicode-range: U+0620-065F, U+0670-06EF, U+06FA-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: "Tufuli Arabic";
+  src:
+    local("Tufuli Arabic Bold"),
+    url("/fonts/tufuli-bold.woff2") format("woff2"),
+    url("/fonts/tufuli-bold.otf") format("opentype");
+  font-weight: 501 900;
+  font-display: swap;
+  unicode-range: U+0620-065F, U+0670-06EF, U+06FA-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFC;
+}

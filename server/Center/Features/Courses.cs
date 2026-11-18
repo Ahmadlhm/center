@@ -19,13 +19,14 @@ public static class Courses
             {
                 var commission = new Commission(Guid.NewGuid(), Rules.Required(input.Title), input.Teacher, input.Groups.Distinct().ToArray(), "open");
                 data.Commissions.Add(commission);
+                Notifications.Add(data, [input.Teacher], $"تكليف بإنشاء دورة: {commission.Title}", "courses");
                 data.Audit.Log(actor, "course.commission", commission.Id);
                 return commission;
             });
         });
         g.MapPut("/courses/{id:guid}", async (Guid center, Guid id, CourseInput input, State store, HttpContext http) =>
         {
-            var (actor, info) = await Identity.Context(store, http, center);
+            var (actor, _) = await Identity.Context(store, http, center);
             var people = await store.Read<PeopleData>(Module.People, center);
             var staff = await Identity.Staff(store, center);
             Rules.Require(input.Type is "private" or "central" or "recitation" && input.Status is "active" or "closed", "اختر نوع الدورة وحالتها.");
@@ -56,15 +57,60 @@ public static class Courses
                         ? commission is { State: "open" } && commission.Teacher == actor.Id && groupIds.SequenceEqual(commission.Groups) && input.Students.Length == 0
                         : existing.Groups.SequenceEqual(groupIds) && existing.Students.SequenceEqual(input.Students)), "يحدد المدير نطاق دورة التلاوة والمشاركين.", 403);
                 }
-                var teachers = actor.Admin ? input.Teachers : existing?.Teachers ?? [owner];
-                teachers = teachers.Append(owner).Distinct().ToArray();
-                Rules.Require(teachers.Length > 0 && teachers.All(id => staff.Any(x => x.Id == id && x.Active && x.Roles.Contains("teacher"))), "اختر معلّمين نشطين.");
+                var requested = input.Teachers.Distinct().ToArray();
+                Rules.Require(requested.Length is 1 or 2 && requested.Contains(owner) &&
+                    requested.All(id => staff.Any(x => x.Id == id && x.Active && x.Roles.Contains("teacher"))),
+                    "اختر معلّمًا واحدًا أو معلّمين، بينهما معلّم الدورة الأساسي.");
                 Rules.Require(input.Criterion is "manual" or "complete", "اختر معيار الاجتياز.");
+                var teachers = actor.Admin ? requested : existing?.Teachers ?? [];
                 var course = new Course(id, Rules.Required(input.Name), input.Type, input.Type == "recitation" ? input.Level : null,
                     owner, teachers, groupIds, input.Students.Distinct().ToArray(), input.Status, commission?.Id, input.Criterion);
                 data.Courses.Upsert(x => x.Id == id, course);
+                var pending = data.CourseTeacherRequests.Find(x => x.Course == id);
+                if (actor.Admin && (existing == null || !requested.ToHashSet().SetEquals(existing.Teachers)))
+                {
+                    data.CourseTeacherRequests.RemoveAll(x => x.Course == id);
+                    Notifications.Add(data, requested.Except(existing?.Teachers ?? []), $"أُسندت إليك دورة «{course.Name}».", Route(course));
+                    if (pending != null && !requested.Contains(pending.RequestedBy))
+                        Notifications.Add(data, [pending.RequestedBy], $"حُدّث إسناد دورة «{course.Name}» من الإدارة.", Route(course));
+                }
+                else if (!actor.Admin && !requested.ToHashSet().SetEquals(teachers) && (pending == null || !requested.ToHashSet().SetEquals(pending.Teachers)))
+                {
+                    data.CourseTeacherRequests.Upsert(x => x.Course == id, new(Guid.NewGuid(), id, actor.Id, requested, DateTimeOffset.UtcNow));
+                    Notifications.Add(data, staff.Where(x => x.Active && x.Roles.Contains("admin")).Select(x => x.Id),
+                        $"طلب إسناد معلّمين لدورة «{course.Name}».", Route(course));
+                }
+                else if (!actor.Admin && requested.ToHashSet().SetEquals(teachers))
+                    data.CourseTeacherRequests.RemoveAll(x => x.Course == id);
                 if (commission != null) data.Commissions.Upsert(x => x.Id == commission.Id, commission with { State = "used" });
                 data.Audit.Log(actor, "course.save", id);
+                return course;
+            });
+        });
+        g.MapPost("/courses/{id:guid}/teachers/decision", async (Guid center, Guid id, TeacherDecision input, State store, HttpContext http) =>
+        {
+            var (actor, _) = await Identity.Context(store, http, center);
+            actor.Admin();
+            var staff = await Identity.Staff(store, center);
+            return await store.Change<EducationData, Course>(Module.Education, center, data =>
+            {
+                var course = Rules.Found(data.Courses.Find(x => x.Id == id));
+                var request = data.CourseTeacherRequests.Find(x => x.Course == id && x.Id == input.Request);
+                Rules.Require(request != null, "تغيّر طلب الإسناد أو تمت مراجعته. حدّث الصفحة.", 409);
+                var reason = input.Approve ? null : Rules.Required(input.Reason, 500);
+                if (input.Approve)
+                {
+                    Rules.Require(request!.Teachers.All(id => staff.Any(x => x.Id == id && x.Active && x.Roles.Contains("teacher"))),
+                        "أحد المعلّمين المقترحين غير نشط.");
+                    course = course with { Teachers = request.Teachers };
+                    data.Courses.Upsert(x => x.Id == id, course);
+                }
+                var recipients = input.Approve ? request!.Teachers.Append(request.RequestedBy) : [request!.RequestedBy];
+                Notifications.Add(data, recipients,
+                    input.Approve ? $"اعتمدت الإدارة إسناد دورة «{course.Name}»." : $"رفضت الإدارة إسناد دورة «{course.Name}». {reason}",
+                    Route(course));
+                data.CourseTeacherRequests.Remove(request);
+                data.Audit.Log(actor, input.Approve ? "course.teachers.approved" : "course.teachers.rejected", id, reason);
                 return course;
             });
         });
@@ -82,6 +128,7 @@ public static class Courses
             return new
             {
                 course = course with { Students = course.Students.Where(members.Contains).ToArray() },
+                teacherRequest = actor.Admin || course.Owner == actor.Id ? data.CourseTeacherRequests.Find(x => x.Course == id) : null,
                 students = people.Students.Where(x => members.Contains(x.Id)).Select(x => new { x.Id, x.Name, x.Number }),
                 grades = data.Grades.Where(x => x.Course == id && members.Contains(x.Student)),
                 meetings = data.Meetings.Where(x => x.Course == id || x.LessonCourse == id).Select(x => Education.Filter(actor, people, x, today))
@@ -150,9 +197,12 @@ public static class Courses
         });
         g.MapPut("/competitions/{id:guid}/entries", async (Guid center, Guid id, EntryInput input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
-            actor.Admin();
+            var (actor, info) = await Identity.Context(store, http, center);
             var people = await store.Read<PeopleData>(Module.People, center);
+            Rules.Require(actor.Admin || People.FullStudent(actor, people, input.Student, Rules.Today(info.TimeZone)),
+                "يمكنك إسناد المسابقة لطلاب شعبك فقط.", 403);
+            Rules.Require(actor.Admin || (input.Score is null && input.Rank is null), "رصد الدرجات والمراكز من صلاحيات الإدارة.", 403);
+            var staff = actor.Admin ? [] : await Identity.Staff(store, center);
             return await store.Change<EducationData, ContestEntry>(Module.Education, center, data =>
             {
                 var contest = Rules.Found(data.Competitions.Find(x => x.Id == id));
@@ -165,13 +215,20 @@ public static class Courses
                     people.GroupAt(x.Group, contest.Date) is { } group && people.InScope(group.Unit, [category.Unit.Value])), "الطالب خارج الوحدة المؤهلة في تاريخ المسابقة.");
                 Rules.Require(contest.Multiple || !data.Entries.Any(x => x.Competition == id && x.Student == student.Id && x.Category != category.Id), "يسمح للطالب بفئة واحدة.");
                 Rules.Require(input.Score is null or >= 0 and <= 100 && input.Rank is null or >= 1, "الدرجة أو المركز غير صحيح.");
+                var existing = data.Entries.Find(x => x.Competition == id && x.Category == category.Id && x.Student == student.Id);
+                if (!actor.Admin && existing != null) return existing;
                 var row = new ContestEntry(id, category.Id, student.Id, input.Score, input.Rank);
                 data.Entries.Upsert(x => x.Competition == id && x.Category == category.Id && x.Student == student.Id, row);
                 data.Audit.Log(actor, "competition.entry", student.Id);
+                if (!actor.Admin)
+                    Notifications.Add(data, staff.Where(x => x.Active && x.Roles.Contains("admin")).Select(x => x.Id),
+                        $"أُضيف مشارك إلى «{contest.Name}» في فئة «{category.Name}».", "contests");
                 return row;
             });
         });
     }
+    public static string Route(Course course) => (course.Type == "recitation" ? "recitation-course/" : "course/") + course.Id;
+    public record TeacherDecision(Guid Request, bool Approve, string? Reason);
     public record CommissionInput(string Title, Guid Teacher, Guid[] Groups);
     public record CourseInput(string Name, string Type, string? Level, Guid[] Teachers, Guid[] Groups, Guid[] Students, string Status, Guid? Commission, string Criterion = "manual");
     public record GradeInput(string State);
