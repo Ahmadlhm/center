@@ -50,6 +50,7 @@ public sealed class PeopleData
     public List<Group> Groups { get; init; } = [];
     public List<GroupHistory> GroupHistory { get; init; } = [];
     public List<Student> Students { get; init; } = [];
+    public long? LastStudentNumber { get; set; }
     public List<Enrollment> Enrollments { get; init; } = [];
     public List<Rule> Rules { get; init; } = [];
     public List<Policy> Policies { get; init; } = [];

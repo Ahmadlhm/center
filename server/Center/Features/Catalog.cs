@@ -7,6 +7,7 @@ namespace Center.Features;
 public static class Catalog
 {
     private static readonly PlatformCatalog Defaults = LoadDefaults();
+    public static MushafLayout Mushaf { get; } = new(Defaults);
 
     private static PlatformCatalog LoadDefaults()
     {

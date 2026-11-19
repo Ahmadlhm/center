@@ -174,15 +174,22 @@ function StudentForm({
   close: () => void;
 }) {
   const [baseline, setBaseline] = useState<Span[]>(student?.baseline ?? []);
+  const [id] = useState(() => student?.id ?? uid());
+  const [suggestion, setSuggestion] = useState("");
+  const people = f(c, "/people/students/");
+  useEffect(() => {
+    if (!student)
+      void api<{ number: string }>(people + "next-number")
+        .then(({ number }) => setSuggestion(number))
+        .catch(() => setSuggestion(""));
+  }, [people, student]);
   return (
     <Dialog
       title={student ? "تعديل بيانات الطالب" : "إضافة طالب"}
       close={close}
       submit={async (form) => {
-        const id = student?.id ?? uid();
         await api(f(c, "/people/students/" + id), "PUT", {
           name: val(form, "name"),
-          number: val(form, "number"),
           birth: optional(form, "birth"),
           contact: val(form, "contact"),
           estimated: optional(form, "estimated"),
@@ -198,7 +205,15 @@ function StudentForm({
           <input name="name" defaultValue={student?.name} required />
         </Field>
         <Field label="رقم الطالب">
-          <input name="number" defaultValue={student?.number} required />
+          <input
+            name="number"
+            value={student?.number ?? suggestion}
+            placeholder="يُعيّن تلقائيًا عند الحفظ"
+            readOnly
+          />
+          {!student && suggestion && (
+            <small>الرقم النهائي يُعتمد عند الحفظ.</small>
+          )}
         </Field>
         <Field label="تاريخ الميلاد">
           <input
@@ -246,17 +261,21 @@ function StudentForm({
     </Dialog>
   );
 }
+type Memorization = { juz: number; pages: number };
+const amountLabel = ({ juz, pages }: Memorization) =>
+  fmt(juz) + " جزء · " + fmt(pages) + " صفحة";
+
 type StudentData = {
   student: Student;
-  memorized: number;
-  baseline: number;
+  memorized: Memorization;
+  baseline: Memorization;
   progress: {
     id: string;
     date: string;
     group: string | null;
     course: string | null;
     mark: Mark;
-    added: number;
+    added: Memorization;
   }[];
   enrollments: {
     group: string;
@@ -341,12 +360,12 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
       <div className="detail-summary">
         <Summary
           title="إجمالي الحفظ"
-          value={fmt(data.memorized) + " آية"}
+          value={amountLabel(data.memorized)}
           icon={<BookOpen size={20} />}
         />
         <Summary
           title="رصيد الانتساب"
-          value={fmt(data.baseline) + " آية"}
+          value={amountLabel(data.baseline)}
           icon={<FolderOpen size={20} />}
         />
         <Summary
@@ -379,7 +398,7 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
         <div className="card">
           {data.progress.length ? (
             <Table
-              headers={["التاريخ", "الشعبة", "الحضور", "تسميع", "آيات جديدة"]}
+              headers={["التاريخ", "الشعبة", "الحضور", "تسميع", "حفظ اكتمل"]}
             >
               {[...data.progress].reverse().map((r) => (
                 <tr key={r.id}>
@@ -403,7 +422,9 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
                       .join("، ") ||
                       (r.mark.practice === "skip" ? "لم يسمّع" : "—")}
                   </td>
-                  <td>{fmt(r.added)}</td>
+                  <td>
+                    {r.added.juz || r.added.pages ? amountLabel(r.added) : "—"}
+                  </td>
                 </tr>
               ))}
             </Table>
@@ -562,8 +583,13 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
             c.notify("حُدّث الانتساب");
           }}
         >
+          <p>
+            لإضافة انتساب اختر الشعبة الجديدة. للنقل اختر الشعبة الجديدة والشعبة
+            التي تريد إنهاء الانتساب إليها. للإلغاء اختر الشعبة المراد إنهاؤها
+            فقط.
+          </p>
           <div className="form-grid">
-            <Field label="الانتساب إلى شعبة">
+            <Field label="الشعبة الجديدة">
               <Select
                 options={options(c.people.groups)}
                 placeholder="اختر شعبة جديدة"
@@ -571,7 +597,7 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
                 onChange={setChosen}
               />
             </Field>
-            <Field label="إنهاء الانتساب إلى">
+            <Field label="الشعبة المراد إنهاء الانتساب إليها">
               <Select
                 options={groups.map((e) => ({ value: e.group, name: e.name }))}
                 placeholder="أبقِ التسجيلات الحالية"
