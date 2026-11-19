@@ -23,8 +23,6 @@ services:
     networks: [frontend]
   web:
     ports: !reset []
-    volumes:
-      - "${CENTER_FONTS_DIR:-./web/public/fonts}:/usr/share/nginx/html/fonts:ro"
   postgres:
     environment:
       POSTGRES_PASSWORD: ${CENTER_DB_ADMIN_PASSWORD:?Set CENTER_DB_ADMIN_PASSWORD in .env}
