@@ -45,17 +45,15 @@ services:
       CENTER_DB: Host=postgres;Database=center;Username=center_identity;Password=${CENTER_IDENTITY_DB_PASSWORD:-local-identity-replace}
       CENTER_PLATFORM_EMAIL: ${CENTER_PLATFORM_EMAIL:-}
       CENTER_PLATFORM_PASSWORD: ${CENTER_PLATFORM_PASSWORD:-}
-      CENTER_GOOGLE_CLIENT_ID: ${CENTER_GOOGLE_CLIENT_ID:-}
-      CENTER_GOOGLE_CLIENT_SECRET: ${CENTER_GOOGLE_CLIENT_SECRET:-}
-      CENTER_GOOGLE_ADMIN_EMAIL: ${CENTER_GOOGLE_ADMIN_EMAIL:-}
-      CENTER_GOOGLE_PLATFORM_EMAIL: ${CENTER_GOOGLE_PLATFORM_EMAIL:-}
-      CENTER_GOOGLE_ADMIN_SUBJECT: ${CENTER_GOOGLE_ADMIN_SUBJECT:-}
+      CENTER_DATA_PROTECTION_DIRECTORY: /var/lib/center-keys
       CENTER_SMTP_HOST: ${CENTER_SMTP_HOST:-}
       CENTER_SMTP_PORT: ${CENTER_SMTP_PORT:-587}
       CENTER_SMTP_USER: ${CENTER_SMTP_USER:-}
       CENTER_SMTP_PASSWORD: ${CENTER_SMTP_PASSWORD:-}
       CENTER_SMTP_FROM: ${CENTER_SMTP_FROM:-}
       CENTER_SMTP_LOCAL_PLAINTEXT: ${CENTER_SMTP_LOCAL_PLAINTEXT:-false}
+    volumes:
+      - identity-keys:/var/lib/center-keys
     networks: [backend, mail-egress]
   people:
     <<: *backend
@@ -120,3 +118,4 @@ networks:
   mail-egress:
 volumes:
   postgres-data:
+  identity-keys:

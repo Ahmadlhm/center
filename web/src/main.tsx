@@ -1,6 +1,5 @@
 import {
   ChangePassword,
-  GoogleAdminLink,
   TemporaryCredentials,
   type IssuedCredentials,
 } from "./passwords";
@@ -11,6 +10,7 @@ import type { Catalog } from "./quran";
 import { InboxButton } from "./inbox";
 import React, { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AdminMfa } from "./admin-mfa";
+import { AuthenticatorMfa } from "./authenticator-mfa";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -151,19 +151,20 @@ function App() {
         <p>جارٍ فتح المنصة…</p>
       </div>
     );
-  if (!session || hash.startsWith("reset/") || hash === "google-error")
+  if (!session || hash.startsWith("reset/"))
     return <Auth key={hash} hash={hash} login={load} />;
   if (session.mustChangePassword)
-    return (
-      <ChangePassword
-        forced
-        googleSignIn={session.googleSignIn}
+    return <ChangePassword forced done={load} logout={logout} />;
+  if (session.requiresMfa)
+    return session.platform ? (
+      <AuthenticatorMfa
+        enrolled={session.hasAuthenticator}
         done={load}
         logout={logout}
       />
+    ) : (
+      <AdminMfa user={session} done={load} logout={logout} />
     );
-  if (session.requiresMfa)
-    return <AdminMfa user={session} done={load} logout={logout} />;
   if (session.platform && (!session.centers.length || hash === "platform"))
     return <Platform user={session} logout={logout} />;
   if (!session.centers.length)
@@ -189,7 +190,6 @@ const demos = [
 ];
 function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const [demo, setDemo] = useState(false);
-  const [googleSignIn, setGoogleSignIn] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -199,11 +199,8 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const reset = hash.startsWith("reset/");
   const signInPage = !apply && !activate && !forgot && !reset;
   useEffect(() => {
-    void api<{ demo: boolean; googleSignIn?: boolean }>("/api/auth/info")
-      .then((x) => {
-        setDemo(x.demo);
-        setGoogleSignIn(x.googleSignIn === true);
-      })
+    void api<{ demo: boolean }>("/api/auth/info")
+      .then((x) => setDemo(x.demo))
       .catch(() => {});
   }, []);
   async function signIn(email: string, password: string) {
@@ -368,13 +365,6 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
               </Button>
             </form>
           )}
-          {hash === "google-error" && (
-            <ErrorBox>
-              تعذّر الدخول عبر Google. استخدم حساب Google المعتمد لإدارة المنصة
-              وحاول مرة أخرى.
-            </ErrorBox>
-          )}
-          {googleSignIn && signInPage && <GoogleAdminLink />}
           {demo && signInPage && (
             <div className="demo">
               <small>تجربة المنصة ببيانات نموذجية</small>

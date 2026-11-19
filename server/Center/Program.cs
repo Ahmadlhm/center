@@ -5,6 +5,7 @@ using Center.Domain;
 using Center.Features;
 using Center.Infrastructure;
 using Fido2NetLib;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Npgsql;
 
@@ -30,11 +31,11 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(config["CENTER_DB"] ?
     "Host=127.0.0.1;Port=55432;Database=center;Username=center_local"));
 builder.Services.AddHttpClient("internal", c => c.Timeout = TimeSpan.FromSeconds(120)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
 builder.Services.AddSingleton<State>();
-var googleSignIn = new GoogleSignIn(config, origin);
 if (mode is "identity" or "all")
 {
-    builder.Services.AddSingleton(googleSignIn);
-    googleSignIn.Register(builder.Services);
+    var protection = builder.Services.AddDataProtection().SetApplicationName("quran-center-identity");
+    if (config["CENTER_DATA_PROTECTION_DIRECTORY"] is { Length: > 0 } keyDirectory)
+        protection.PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
     builder.Services.AddSingleton<PasswordMail>();
     builder.Services.AddHostedService(services => services.GetRequiredService<PasswordMail>());
 }
@@ -88,7 +89,6 @@ app.Use(async (ctx, next) =>
     }
 });
 app.UseRateLimiter();
-if (store.Local(Module.Identity) && googleSignIn.Enabled) app.UseAuthentication();
 app.MapGet("/health", () => new { status = "ok", service = mode });
 if (mode == "gateway")
 {

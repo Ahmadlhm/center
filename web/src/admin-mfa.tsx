@@ -5,7 +5,6 @@ import {
 } from "@simplewebauthn/browser";
 import { Fingerprint, LogOut } from "lucide-react";
 import { api, message, type Session } from "./model";
-import { GoogleAdminLink } from "./passwords";
 import { Button, ErrorBox } from "./ui";
 
 export function AdminMfa({
@@ -86,7 +85,6 @@ export function AdminMfa({
             خروج
           </Button>
         </div>
-        {user.googleSignIn && <GoogleAdminLink />}
       </section>
     </main>
   );

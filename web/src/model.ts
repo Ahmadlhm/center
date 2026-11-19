@@ -204,7 +204,7 @@ export type Session = {
   platform: boolean;
   requiresMfa: boolean;
   mustChangePassword: boolean;
-  googleSignIn: boolean;
+  hasAuthenticator: boolean;
   hasPasskey: boolean;
   centers: Center[];
 };
