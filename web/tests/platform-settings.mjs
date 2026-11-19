@@ -44,6 +44,10 @@ try {
     call(manager, "GET", center + "/people"),
   ]);
   assert.equal(catalog.surahs.length, 114);
+  assert.equal(
+    catalog.surahs.reduce((total, surah) => total + surah.verses, 0),
+    6236,
+  );
   assert.equal(catalog.juz.length, 30);
   assert.equal(catalog.pages.length, 604);
   assert.deepEqual(
@@ -64,6 +68,39 @@ try {
   await call(platform, "GET", center + "/people", undefined, 403);
   await call(manager, "GET", center + "/people/configuration", undefined, 403);
   await call(manager, "PUT", auth + "/catalog", catalog, 403);
+  const changesToMushaf = [
+    { mushaf: "Changed edition" },
+    {
+      surahs: catalog.surahs.map((surah, index) =>
+        index === 0 ? { ...surah, verses: surah.verses + 1 } : surah,
+      ),
+    },
+    {
+      surahs: catalog.surahs.map((surah, index) =>
+        index === 0 ? { ...surah, name: "Changed surah" } : surah,
+      ),
+    },
+    {
+      juz: catalog.juz.map((part, index) =>
+        index === 1 ? { ...part, ayah: part.ayah + 1 } : part,
+      ),
+    },
+    { pages: catalog.pages.slice(0, -1) },
+    {
+      pages: catalog.pages.map((page, index) =>
+        index === 1 ? { ...page, ayah: page.ayah + 1 } : page,
+      ),
+    },
+  ];
+  for (const change of changesToMushaf)
+    await call(
+      platform,
+      "PUT",
+      auth + "/catalog",
+      { ...catalog, ...change },
+      400,
+    );
+  assert.deepEqual(await call(platform, "GET", auth + "/catalog"), catalog);
   const saved = await call(platform, "PUT", auth + "/catalog", catalog);
   assert.equal(saved.version, catalog.version + 1);
   await call(platform, "PUT", auth + "/catalog", catalog, 409);
@@ -270,6 +307,15 @@ try {
   await ui.getByRole("button", { name: "إدارة المنصة", exact: true }).click();
   await ui.getByRole("button", { name: "كتالوج المنصة", exact: true }).click();
   await ui.getByText("التمهيدية", { exact: true }).waitFor();
+  for (const tab of ["السور والآيات", "الأجزاء", "صفحات المصحف"]) {
+    await ui.getByRole("button", { name: tab, exact: true }).click();
+    const table = ui.getByRole("table");
+    await table.getByRole("row").first().waitFor();
+    assert.equal(
+      await table.locator("input, select, textarea, [contenteditable]").count(),
+      0,
+    );
+  }
   await ui
     .getByRole("button", { name: "إعدادات المراكز", exact: true })
     .click();
@@ -287,7 +333,7 @@ try {
     profile.mapUrl,
   );
   console.log(
-    "PASS: editable catalog, platform-only settings, Minir curricula, temporary passwords, password changes, and director passkey attendance.",
+    "PASS: fixed Mushaf references, editable curricula, platform-only settings, temporary passwords, password changes, and director passkey attendance.",
   );
 } finally {
   await browser?.close();

@@ -6,7 +6,9 @@ namespace Center.Features;
 
 public static class Catalog
 {
-    public static PlatformCatalog Seed()
+    private static readonly PlatformCatalog Defaults = LoadDefaults();
+
+    private static PlatformCatalog LoadDefaults()
     {
         using var stream = typeof(Catalog).Assembly.GetManifestResourceStream("Center.Data.catalog.json")
             ?? throw new InvalidOperationException("Catalog seed missing.");
@@ -16,7 +18,17 @@ public static class Catalog
     public static async Task<PlatformCatalog> Read(State store)
     {
         if (!store.Local(Module.Identity)) return await store.Send<PlatformCatalog>(Module.Identity, "/internal/catalog", new { });
-        return (await store.Read<IdentityData>(Module.Identity, Guid.Empty)).Catalog ?? Seed();
+        var settings = (await store.Read<IdentityData>(Module.Identity, Guid.Empty)).Catalog;
+        return settings is null ? Defaults : Defaults with
+        {
+            Version = settings.Version,
+            UnitKinds = settings.UnitKinds,
+            Chapters = settings.Chapters,
+            Levels = settings.Levels,
+            ContestLevels = settings.ContestLevels,
+            TajweedTypes = settings.TajweedTypes,
+            GroupTypes = settings.GroupTypes
+        };
     }
 
     public static MeetingSettings Settings(EducationData education, PlatformCatalog catalog) =>
@@ -47,7 +59,8 @@ public static class Catalog
                 var version = data.Catalog?.Version ?? snapshot.Version;
                 Rules.Require(input.Version == version, "تغيّر الكتالوج. حدّث الصفحة قبل الحفظ.", 409);
                 var updated = input with { Version = version + 1 };
-                data.Catalog = updated;
+                data.Catalog = new(updated.Version, input.UnitKinds, input.Chapters, input.Levels,
+                    input.ContestLevels, input.TajweedTypes, input.GroupTypes);
                 data.Audit.Log(actor, "catalog.update", updated.Version);
                 return updated;
             });
@@ -56,16 +69,11 @@ public static class Catalog
 
     private static void Validate(PlatformCatalog catalog, PlatformCatalog previous)
     {
-        Rules.Required(catalog.Mushaf);
-        Rules.Require(catalog.Surahs.Select(x => x.Number).Order().SequenceEqual(previous.Surahs.Select(x => x.Number).Order()),
-            "تحافظ السور على أرقامها المرجعية.");
-        foreach (var surah in catalog.Surahs)
-        {
-            Rules.Required(surah.Name, 70);
-            Rules.Require(surah.Verses is > 0 and <= 999, "عدد الآيات غير صالح.");
-        }
-        Partitions(catalog.Juz, catalog, previous.Juz);
-        Partitions(catalog.Pages, catalog, previous.Pages);
+        Rules.Require(catalog.Mushaf == Defaults.Mushaf &&
+            catalog.Surahs is not null && catalog.Surahs.SequenceEqual(Defaults.Surahs) &&
+            catalog.Juz is not null && catalog.Juz.SequenceEqual(Defaults.Juz) &&
+            catalog.Pages is not null && catalog.Pages.SequenceEqual(Defaults.Pages),
+            "بيانات المصحف ثابتة وللقراءة فقط.");
         Rules.Require(catalog.UnitKinds.Length is > 0 and <= 100 && catalog.UnitKinds.Distinct().Count() == catalog.UnitKinds.Length, "راجع أنواع الوحدات.");
         foreach (var kind in catalog.UnitKinds) Rules.Required(kind, 50);
         Rules.Require(catalog.Chapters.Length <= 200 && catalog.Chapters.Select(x => x.Number).Distinct().Count() == catalog.Chapters.Length, "أرقام الفصول يجب أن تكون فريدة.");
@@ -77,7 +85,7 @@ public static class Catalog
         Rules.Require(catalog.Levels.Length is > 0 and <= 100 && catalog.Levels.Any(x => x.Active) &&
             catalog.Levels.Select(x => x.Key).Distinct().Count() == catalog.Levels.Length &&
             previous.Levels.All(x => catalog.Levels.Any(y => y.Key == x.Key)), "أوقف المستوى القديم من خيار نشط للاحتفاظ بمرجعه.");
-        var juz = catalog.Juz.Select(x => x.Number).ToHashSet();
+        var juz = Defaults.Juz.Select(x => x.Number).ToHashSet();
         foreach (var level in catalog.Levels)
         {
             Rules.Required(level.Key, 80);
@@ -99,21 +107,6 @@ public static class Catalog
         }
         MeetingTypes(catalog.TajweedTypes, previous.TajweedTypes, tajweed: true);
         MeetingTypes(catalog.GroupTypes, previous.GroupTypes, tajweed: false);
-    }
-
-    private static void Partitions(QuranPartition[] partitions, PlatformCatalog catalog, QuranPartition[] previous)
-    {
-        var sorted = partitions.OrderBy(x => x.Number).ToArray();
-        Rules.Require(sorted.Select(x => x.Number).SequenceEqual(previous.Select(x => x.Number).Order()), "حافظ على الترقيم المرجعي للأجزاء والصفحات.");
-        var last = 0;
-        foreach (var item in sorted)
-        {
-            Rules.Required(item.Name, 70);
-            catalog.Validate(new(item.Surah, item.Ayah, item.Ayah));
-            var reference = item.Surah * 1000 + item.Ayah;
-            Rules.Require(reference > last && (last != 0 || reference == 1001), "يجب أن تتتابع بدايات الأجزاء والصفحات حسب ترتيب المصحف.");
-            last = reference;
-        }
     }
 
     private static void MeetingTypes(MeetingType[] types, MeetingType[] previous, bool tajweed)

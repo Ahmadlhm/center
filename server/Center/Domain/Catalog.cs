@@ -5,6 +5,8 @@ public record QuranPartition(int Number, string Name, int Surah, int Ayah);
 public record TeachingChapter(int Number, string Title);
 public record RecitationLevel(string Key, string Name, string Book, int[] Chapters, int[] RequiredJuz, int ChooseJuz, int[] ExcludedJuz, bool Active = true);
 public record ContestLevel(Guid Id, string Name, int? MinAge, int? MaxAge);
+public record CatalogSettings(int Version, string[] UnitKinds, TeachingChapter[] Chapters, RecitationLevel[] Levels,
+    ContestLevel[] ContestLevels, MeetingType[] TajweedTypes, MeetingType[] GroupTypes);
 public record PlatformCatalog(int Version, string Mushaf, SurahReference[] Surahs, QuranPartition[] Juz, QuranPartition[] Pages,
     string[] UnitKinds, TeachingChapter[] Chapters, RecitationLevel[] Levels, ContestLevel[] ContestLevels,
     MeetingType[] TajweedTypes, MeetingType[] GroupTypes)

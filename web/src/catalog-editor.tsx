@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, message, uid } from "./model";
-import type { Catalog, Partition, RecitationLevel } from "./quran";
+import type { Catalog, RecitationLevel } from "./quran";
 import {
   Add,
   Button,
@@ -25,7 +25,12 @@ export function CatalogEditor({
   const [tab, setTab] = useState("levels");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  function change<K extends keyof Catalog>(key: K, value: Catalog[K]) {
+  function change<
+    K extends Exclude<
+      keyof Catalog,
+      "version" | "mushaf" | "surahs" | "juz" | "pages"
+    >,
+  >(key: K, value: Catalog[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
   }
   async function save() {
@@ -256,17 +261,9 @@ export function CatalogEditor({
           </Table>
         </section>
       )}
-      {tab === "surahs" && (
-        <SurahTable catalog={draft} edit={(rows) => change("surahs", rows)} />
-      )}
+      {tab === "surahs" && <SurahTable catalog={catalog} />}
       {(tab === "juz" || tab === "pages") && (
-        <PartitionTable
-          key={tab}
-          catalog={draft}
-          subject={tab}
-          edit={(rows) => change(tab, rows)}
-          mushaf={(name) => change("mushaf", name)}
-        />
+        <PartitionTable key={tab} catalog={catalog} subject={tab} />
       )}
       {tab === "contest" && (
         <section className="card">
@@ -441,17 +438,11 @@ export function CatalogEditor({
   );
 }
 
-function SurahTable({
-  catalog,
-  edit,
-}: {
-  catalog: Catalog;
-  edit: (r: Catalog["surahs"]) => void;
-}) {
+function SurahTable({ catalog }: { catalog: Catalog }) {
   const [query, setQuery] = useState("");
   return (
     <section className="card">
-      <CardHead title="السور وعدد الآيات">
+      <CardHead title="السور وعدد الآيات" desc="مرجع ثابت للقراءة فقط">
         <input
           aria-label="بحث عن سورة"
           placeholder="اسم السورة أو رقمها"
@@ -465,38 +456,8 @@ function SurahTable({
           .map((row) => (
             <tr key={row.number}>
               <td>{row.number}</td>
-              <td>
-                <input
-                  aria-label={"اسم السورة " + row.number}
-                  value={row.name}
-                  onChange={(e) =>
-                    edit(
-                      catalog.surahs.map((x) =>
-                        x.number === row.number
-                          ? { ...row, name: e.target.value }
-                          : x,
-                      ),
-                    )
-                  }
-                />
-              </td>
-              <td>
-                <input
-                  aria-label={"عدد الآيات في " + row.name}
-                  type="number"
-                  min="1"
-                  value={row.verses}
-                  onChange={(e) =>
-                    edit(
-                      catalog.surahs.map((x) =>
-                        x.number === row.number
-                          ? { ...row, verses: +e.target.value }
-                          : x,
-                      ),
-                    )
-                  }
-                />
-              </td>
+              <td>{row.name}</td>
+              <td>{row.verses}</td>
             </tr>
           ))}
       </Table>
@@ -507,13 +468,9 @@ function SurahTable({
 function PartitionTable({
   catalog,
   subject,
-  edit,
-  mushaf,
 }: {
   catalog: Catalog;
   subject: "pages" | "juz";
-  edit: (r: Partition[]) => void;
-  mushaf: (name: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -522,7 +479,10 @@ function PartitionTable({
   );
   return (
     <section className="card">
-      <CardHead title={subject === "pages" ? "صفحات المصحف" : "أجزاء المصحف"}>
+      <CardHead
+        title={subject === "pages" ? "صفحات المصحف" : "أجزاء المصحف"}
+        desc={catalog.mushaf + " · مرجع ثابت للقراءة فقط"}
+      >
         <input
           aria-label="بحث بالاسم أو الرقم"
           placeholder="الاسم أو الرقم"
@@ -533,56 +493,15 @@ function PartitionTable({
           }}
         />
       </CardHead>
-      {subject === "pages" && (
-        <div className="panel">
-          <Field label="طبعة المصحف">
-            <input
-              value={catalog.mushaf}
-              onChange={(e) => mushaf(e.target.value)}
-            />
-          </Field>
-        </div>
-      )}
       <Table headers={["الرقم", "الاسم", "سورة البداية", "الآية"]}>
-        {list.slice(page * 20, (page + 1) * 20).map((row) => {
-          const patch = (part: Partial<Partition>) =>
-            edit(
-              catalog[subject].map((x) =>
-                x.number === row.number ? { ...x, ...part } : x,
-              ),
-            );
-          return (
-            <tr key={row.number}>
-              <td>{row.number}</td>
-              <td>
-                <input
-                  aria-label={"اسم " + row.number}
-                  value={row.name}
-                  onChange={(e) => patch({ name: e.target.value })}
-                />
-              </td>
-              <td>
-                <Select
-                  options={catalog.surahs.map((x) => ({
-                    value: String(x.number),
-                    name: x.name,
-                  }))}
-                  value={String(row.surah)}
-                  onChange={(id) => patch({ surah: Number(id), ayah: 1 })}
-                />
-              </td>
-              <td>
-                <input
-                  aria-label={"بداية " + row.number}
-                  type="number"
-                  min="1"
-                  value={row.ayah}
-                  onChange={(e) => patch({ ayah: +e.target.value })}
-                />
-              </td>
-            </tr>
-          );
-        })}
+        {list.slice(page * 20, (page + 1) * 20).map((row) => (
+          <tr key={row.number}>
+            <td>{row.number}</td>
+            <td>{row.name}</td>
+            <td>{catalog.surahs.find((x) => x.number === row.surah)?.name}</td>
+            <td>{row.ayah}</td>
+          </tr>
+        ))}
       </Table>
       <div className="pager">
         <Button

@@ -36,7 +36,6 @@ public static class Identity
         var password = config["CENTER_PLATFORM_PASSWORD"];
         await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
         {
-            data.Catalog ??= Catalog.Seed();
             if (!data.Accounts.Any(x => x.Platform))
             {
                 if (demo) data.Accounts.Add(new(Guid.NewGuid(), "إدارة المنصة", "platform@demo.local", Password("Demo-Platform-2026!"), true));

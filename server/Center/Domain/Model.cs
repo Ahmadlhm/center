@@ -16,7 +16,7 @@ public record PasswordReset(Guid Account, string Hash, DateTimeOffset Expires);
 public record Audit(DateTimeOffset At, Guid By, string Action, string Target, string? Reason = null);
 public sealed class IdentityData
 {
-    public PlatformCatalog? Catalog { get; set; }
+    public CatalogSettings? Catalog { get; set; }
     public bool DemoMapInitialized { get; set; }
     public List<PasswordReset> PasswordResets { get; init; } = [];
     public List<Account> Accounts { get; init; } = [];
