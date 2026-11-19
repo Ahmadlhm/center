@@ -105,10 +105,16 @@ export function StaffDuty({
         title={configuration ? "إعداد دوام الموظفين" : "دوام الموظفين"}
         desc={
           configuration
-            ? "اضبط أيام الدوام وساعات حضوره لكل حساب في المركز."
+            ? "اضبط أيام الدوام وساعات حضوره لكل حساب. يتحقق الجهاز بالبصمة أو الوجه أو رمز قفله."
             : "أثبت حضورك في نطاق المركز باستخدام مفتاح مرور الجهاز."
         }
       >
+        {!configuration && (
+          <a className="btn outline" href="#passkey">
+            <Fingerprint size={16} />
+            مفتاح المرور
+          </a>
+        )}
         {!configuration && list?.mapUrl && (
           <a
             className="btn outline"

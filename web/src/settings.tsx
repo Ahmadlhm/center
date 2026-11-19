@@ -378,7 +378,7 @@ export function Setup({
           <Field label="صورة المركز">
             <input name="logo" type="file" accept="image/png,image/jpeg" />
           </Field>
-          {c.center.logo && (
+          {c.center.logo !== "" && (
             <label className="check-line">
               <input type="checkbox" name="removeLogo" />
               إزالة الشعار الحالي
