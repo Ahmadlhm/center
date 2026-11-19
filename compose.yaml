@@ -45,6 +45,13 @@ services:
       CENTER_DB: Host=postgres;Database=center;Username=center_identity;Password=${CENTER_IDENTITY_DB_PASSWORD:-local-identity-replace}
       CENTER_PLATFORM_EMAIL: ${CENTER_PLATFORM_EMAIL:-}
       CENTER_PLATFORM_PASSWORD: ${CENTER_PLATFORM_PASSWORD:-}
+      CENTER_SMTP_HOST: ${CENTER_SMTP_HOST:-}
+      CENTER_SMTP_PORT: ${CENTER_SMTP_PORT:-587}
+      CENTER_SMTP_USER: ${CENTER_SMTP_USER:-}
+      CENTER_SMTP_PASSWORD: ${CENTER_SMTP_PASSWORD:-}
+      CENTER_SMTP_FROM: ${CENTER_SMTP_FROM:-}
+      CENTER_SMTP_LOCAL_PLAINTEXT: ${CENTER_SMTP_LOCAL_PLAINTEXT:-false}
+    networks: [backend, mail-egress]
   people:
     <<: *backend
     image: quran-center-people:1.0
@@ -105,5 +112,6 @@ networks:
   backend:
     internal: true
   frontend:
+  mail-egress:
 volumes:
   postgres-data:

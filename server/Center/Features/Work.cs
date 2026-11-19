@@ -10,6 +10,7 @@ public static class Work
     public static void Map(WebApplication app)
     {
         var g = app.MapGroup("/api/centers/{center:guid}/work");
+        StaffDuties.Map(g);
         g.MapGet("", async (Guid center, State store, HttpContext http) =>
         {
             var (actor, _) = await Identity.Context(store, http, center);
@@ -22,20 +23,20 @@ public static class Work
                 tasks = data.Tasks.Where(x => actor.Admin || x.Teacher == actor.Id || (actor.Manager && people.Groups.Any(y => y.Id == x.Group && people.InScope(y.Unit, actor.Units))))
             };
         });
-        g.MapPost("/checkins/{meeting:guid}/options", async (Guid center, Guid meeting, State store, HttpContext http, IFido2 fido) =>
+        g.MapPost("/checkins/{meeting:guid}/options", async (Guid center, Guid meeting, DateOnly? date, State store, HttpContext http, IFido2 fido) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
-            await CheckContext(store, actor, info, meeting);
+            await CheckContext(store, actor, info, meeting, date);
             var input = new Passkeys.ProofContext(actor, meeting);
             return store.Local(Module.Identity) ? await Passkeys.Options(store, fido, input) :
                 await store.Send<JsonElement>(Module.Identity, "/internal/passkey/options", input);
         });
-        g.MapPost("/checkins/{meeting:guid}", async (Guid center, Guid meeting, CheckInput input, State store, HttpContext http, IFido2 fido) =>
+        g.MapPost("/checkins/{meeting:guid}", async (Guid center, Guid meeting, DateOnly? date, CheckInput input, State store, HttpContext http, IFido2 fido) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
             var old = (await store.Read<WorkData>(Module.Work, center)).CheckIns.Find(x => x.Meeting == meeting && x.Teacher == actor.Id && x.State == "verified");
             if (old is not null) return old;
-            var rule = await CheckContext(store, actor, info, meeting);
+            var rule = await CheckContext(store, actor, info, meeting, date);
             var age = (DateTimeOffset.UtcNow - input.Captured).TotalSeconds;
             Rules.Require(age is >= -20 and <= 120 && input.Accuracy > 0 && input.Accuracy <= rule.Accuracy && input.Latitude is >= -90 and <= 90 && input.Longitude is >= -180 and <= 180,
                 "اطلب قراءة حديثة للموقع بدقة أعلى.");
@@ -54,24 +55,27 @@ public static class Work
                 return result;
             });
         });
-        g.MapPost("/checkins/{meeting:guid}/review", async (Guid center, Guid meeting, CheckReview input, State store, HttpContext http) =>
+        g.MapPost("/checkins/{meeting:guid}/review", async (Guid center, Guid meeting, DateOnly? date, CheckReview input, State store, HttpContext http) =>
         {
             var (actor, _) = await Identity.Context(store, http, center);
-            var education = await store.Read<EducationData>(Module.Education, center);
-            var target = Rules.Found(education.Meetings.Find(x => x.Id == meeting));
-            var teacher = actor.Admin ? input.Teacher : actor.Id;
-            Rules.Require(target.Teachers.Contains(teacher) && (actor.Admin || actor.Teacher), "هذا المعلّم غير مكلّف باللقاء.", 403);
-            var reason = Rules.Required(input.Reason, 500);
-            Rules.Require(actor.Admin ? input.State is "manual" or "absent" : input.State == "pending", "حالة المراجعة غير متاحة.");
-            return await store.Change<WorkData, CheckIn>(Module.Work, center, data =>
+            var canDecide = actor.Admin && actor.Id != input.Teacher;
+            var employee = canDecide ? input.Teacher : actor.Id;
+            DateOnly dutyDate;
+            if (date is DateOnly scheduled)
             {
-                var old = data.CheckIns.Find(x => x.Meeting == meeting && x.Teacher == teacher);
-                Rules.Require(actor.Admin || old is null || old.State == "pending", "تم اعتماد الدوام بالفعل.", 409);
-                var row = new CheckIn(meeting, teacher, input.State, DateTimeOffset.UtcNow, "review", reason, null);
-                data.CheckIns.Upsert(x => x.Meeting == meeting && x.Teacher == teacher, row);
-                data.Audit.Log(actor, "checkin." + row.State, teacher, reason);
-                return row;
-            });
+                await StaffDuties.Ensure(store, center, meeting, employee, scheduled);
+                dutyDate = scheduled;
+            }
+            else
+            {
+                var education = await store.Read<EducationData>(Module.Education, center);
+                var target = Rules.Found(education.Meetings.Find(x => x.Id == meeting));
+                Rules.Require(target.Teachers.Contains(employee), "هذا الموظف غير مكلّف باللقاء.", 403);
+                dutyDate = target.Date;
+            }
+            var people = await store.Read<PeopleData>(Module.People, center);
+            Rules.Require(canDecide || people.At(dutyDate).AllowAttendanceReview, "طلبات المراجعة غير متاحة بحسب سياسة الدوام.", 403);
+            return await RecordReview(store, actor, meeting, input with { Teacher = employee }, canDecide);
         });
         g.MapPost("/tasks", async (Guid center, TaskInput input, State store, HttpContext http) =>
         {
@@ -107,15 +111,40 @@ public static class Work
             });
         });
     }
-    private static async Task<Rule> CheckContext(State store, Actor actor, CenterInfo info, Guid id)
+    public static Task<CheckIn> RecordReview(State store, Actor actor, Guid id, CheckReview input, bool canDecide)
     {
-        var education = await store.Read<EducationData>(Module.Education, actor.Center);
+        var reason = Rules.Required(input.Reason, 500);
+        Rules.Require(canDecide ? input.State is "manual" or "absent" : input.State == "pending", "حالة المراجعة غير متاحة.");
+        return store.Change<WorkData, CheckIn>(Module.Work, actor.Center, data =>
+        {
+            var old = data.CheckIns.Find(x => x.Meeting == id && x.Teacher == input.Teacher);
+            Rules.Require(canDecide || old is null || old.State == "pending", "تم اعتماد الدوام بالفعل.", 409);
+            var row = new CheckIn(id, input.Teacher, input.State, DateTimeOffset.UtcNow, "review", reason, null);
+            data.CheckIns.Upsert(x => x.Meeting == id && x.Teacher == input.Teacher, row);
+            data.Audit.Log(actor, "checkin." + row.State, input.Teacher, reason);
+            return row;
+        });
+    }
+    private static async Task<Rule> CheckContext(State store, Actor actor, CenterInfo info, Guid id, DateOnly? date)
+    {
         var people = await store.Read<PeopleData>(Module.People, actor.Center);
-        var meeting = Rules.Found(education.Meetings.Find(x => x.Id == id));
-        Rules.Require(actor.Teacher && meeting.Teachers.Contains(actor.Id) && meeting.State != "cancelled", "اللقاء خارج تكليفك.", 403);
-        var rule = people.Rules.Find(x => x.Version == meeting.RuleVersion) ?? people.At(meeting.Date);
-        Rules.Require(rule.Latitude.HasValue && rule.Longitude.HasValue, "يحدد مدير المركز موقع إثبات الدوام أولًا.");
-        var at = Rules.Instant(meeting.Date, meeting.From, info.TimeZone);
+        Rule rule;
+        DateTimeOffset at;
+        if (date is DateOnly day)
+        {
+            var shift = await StaffDuties.Ensure(store, actor.Center, id, actor.Id, day);
+            rule = people.At(day);
+            at = Rules.Instant(day, shift.From, info.TimeZone);
+        }
+        else
+        {
+            var education = await store.Read<EducationData>(Module.Education, actor.Center);
+            var meeting = Rules.Found(education.Meetings.Find(x => x.Id == id));
+            Rules.Require(actor.Teacher && meeting.Teachers.Contains(actor.Id) && meeting.State != "cancelled", "اللقاء خارج تكليفك.", 403);
+            rule = people.At(meeting.Date);
+            at = Rules.Instant(meeting.Date, meeting.From, info.TimeZone);
+        }
+        Rules.Require(rule.Latitude.HasValue && rule.Longitude.HasValue, "يحدد مدير المنصة موقع إثبات الدوام أولًا.");
         var now = DateTimeOffset.UtcNow;
         Rules.Require(now >= at.AddMinutes(-rule.OpenMinutes) && now <= at.AddMinutes(rule.LateMinutes), "أنت خارج نافذة إثبات الحضور.");
         return rule;

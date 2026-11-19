@@ -68,6 +68,7 @@ public static class Passkeys
     private static async Task<Actor> MfaActor(State store, HttpContext http, bool enrolling)
     {
         var (account, data) = await Identity.Current(store, http);
+        Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
         Rules.Require(Identity.RequiresMfa(store, account, data), "التحقق الإضافي غير مطلوب.", 403);
         Rules.Require(!enrolling || !data.Credentials.Any(x => x.Account == account.Id), "استخدم مفتاح المرور المسجل.", 403);
         return new(account.Id, account.Name, account.Platform, Guid.Empty, [], []);

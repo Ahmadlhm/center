@@ -1,3 +1,12 @@
+import {
+  ChangePassword,
+  TemporaryCredentials,
+  type IssuedCredentials,
+} from "./passwords";
+import { CenterConfiguration } from "./center-configuration";
+import { CatalogEditor } from "./catalog-editor";
+import { StaffDuty } from "./staff-duty";
+import type { Catalog } from "./quran";
 import { InboxButton } from "./inbox";
 import React, { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AdminMfa } from "./admin-mfa";
@@ -18,7 +27,6 @@ import {
   LogOut,
   Menu,
   Search,
-  Settings,
   ShieldCheck,
   Sparkles,
   Trophy,
@@ -56,6 +64,7 @@ import {
   options,
   Badge,
   Table,
+  Tabs,
 } from "./ui";
 import { Dashboard } from "./dashboard";
 import {
@@ -90,6 +99,7 @@ const sections = [
         scope: "manager",
       },
       { key: "tasks", name: "التكليفات", icon: ClipboardCheck },
+      { key: "duty", name: "دوام الموظفين", icon: CalendarDays },
     ],
   },
   {
@@ -102,16 +112,7 @@ const sections = [
   },
   {
     name: "إدارة المركز",
-    items: [
-      { key: "reports", name: "التقارير", icon: FileBarChart },
-      { key: "staff", name: "الموظفون", icon: ShieldCheck, scope: "admin" },
-      {
-        key: "settings",
-        name: "إعدادات المركز",
-        icon: Settings,
-        scope: "admin",
-      },
-    ],
+    items: [{ key: "reports", name: "التقارير", icon: FileBarChart }],
   },
 ];
 function App() {
@@ -149,11 +150,14 @@ function App() {
         <p>جارٍ فتح المنصة…</p>
       </div>
     );
-  if (!session) return <Auth key={hash} hash={hash} login={load} />;
+  if (!session || hash.startsWith("reset/"))
+    return <Auth key={hash} hash={hash} login={load} />;
+  if (session.mustChangePassword)
+    return <ChangePassword forced done={load} logout={logout} />;
   if (session.requiresMfa)
     return <AdminMfa user={session} done={load} logout={logout} />;
   if (session.platform && (!session.centers.length || hash === "platform"))
-    return <Platform logout={logout} />;
+    return <Platform user={session} logout={logout} />;
   if (!session.centers.length)
     return (
       <div className="standalone">
@@ -182,6 +186,9 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const apply = hash === "apply";
   const activate = hash.startsWith("activate/");
+  const forgot = hash === "forgot";
+  const reset = hash.startsWith("reset/");
+  const signInPage = !apply && !activate && !forgot && !reset;
   useEffect(() => {
     void api<{ demo: boolean }>("/api/auth/info")
       .then((x) => setDemo(x.demo))
@@ -207,20 +214,38 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     void run(async () => {
-      if (apply) {
+      const password = String(f.get("password") ?? "");
+      if (forgot) {
+        await api("/api/auth/password/forgot", "POST", {
+          email: val(f, "email"),
+        });
+        setDone(
+          "إذا كان البريد مسجّلًا ستصلك رسالة الاستعادة عند تفعيل البريد. تواصل مع مدير المنصة إذا لم تصلك.",
+        );
+      } else if (reset) {
+        if (password !== f.get("confirm"))
+          throw new Error("تأكيد كلمة المرور غير مطابق.");
+        await api("/api/auth/password/reset", "POST", {
+          token: hash.split("/")[1],
+          password,
+        });
+        setDone("تم تحديث كلمة المرور. يمكنك تسجيل الدخول من جديد.");
+      } else if (apply) {
         await api("/api/auth/requests", "POST", {
           name: val(f, "name"),
           contact: val(f, "contact"),
           email: val(f, "email"),
         });
-        setDone("استلمت إدارة المنصة طلبك. سيصلك رابط التفعيل بعد الموافقة.");
+        setDone(
+          "استلمت إدارة المنصة طلبك. سيتواصل معك مدير المنصة بعد مراجعته.",
+        );
       } else if (activate) {
         const r = await api<{ email: string }>("/api/auth/activate", "POST", {
           token: hash.split("/")[1],
-          password: val(f, "password"),
+          password,
         });
-        await signIn(r.email, val(f, "password"));
-      } else await signIn(val(f, "email"), val(f, "password"));
+        await signIn(r.email, password);
+      } else await signIn(val(f, "email"), password);
     });
   }
   return (
@@ -239,9 +264,6 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
           </h1>
           <span>الطلاب، والشعب، والتلاوة، في مكان واحد.</span>
         </div>
-        <div className="auth-foot">
-          مركز نداء الخير القرآني · فرع عمّان الأول
-        </div>
       </section>
       <section className="auth-content">
         <div className="auth-form">
@@ -249,18 +271,26 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
             <Sparkles size={17} /> بوابة الموظفين
           </div>
           <h2>
-            {apply
-              ? "انضمام مركز جديد"
-              : activate
-                ? "تفعيل الحساب"
-                : "تسجيل الدخول"}
+            {forgot
+              ? "نسيت كلمة المرور"
+              : reset
+                ? "إعادة تعيين كلمة المرور"
+                : apply
+                  ? "انضمام مركز جديد"
+                  : activate
+                    ? "تفعيل الحساب"
+                    : "تسجيل الدخول"}
           </h2>
           <p>
-            {apply
-              ? "أرسل بيانات المركز لتراجعها إدارة المنصة."
-              : activate
-                ? "اختر كلمة مرور لحساب الموظف الخاص بك."
-                : "أدخل بيانات حسابك للانتقال إلى مركزك."}
+            {forgot
+              ? "أدخل البريد المرتبط بحسابك."
+              : reset
+                ? "اختر كلمة مرور جديدة من 12 حرفًا على الأقل."
+                : apply
+                  ? "أرسل بيانات المركز لتراجعها إدارة المنصة."
+                  : activate
+                    ? "اختر كلمة مرور لحساب الموظف الخاص بك."
+                    : "أدخل بيانات حسابك للانتقال إلى مركزك."}
           </p>
           {error && <ErrorBox>{error}</ErrorBox>}
           {done ? (
@@ -277,7 +307,7 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
                   </Field>
                 </>
               )}
-              {!activate && (
+              {!activate && !reset && (
                 <Field label="البريد الإلكتروني">
                   <input
                     name="email"
@@ -289,30 +319,44 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
                   />
                 </Field>
               )}
-              {!apply && (
+              {!apply && !forgot && (
                 <Field label="كلمة المرور">
                   <input
                     name="password"
                     type="password"
                     dir="ltr"
                     autoComplete={
-                      activate ? "new-password" : "current-password"
+                      activate || reset ? "new-password" : "current-password"
                     }
                     required
                   />
                 </Field>
               )}
+              {reset && (
+                <Field label="تأكيد كلمة المرور">
+                  <input
+                    name="confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </Field>
+              )}
               <Button type="submit" disabled={busy}>
-                {apply
-                  ? "إرسال الطلب"
-                  : activate
-                    ? "تفعيل حسابي"
-                    : "دخول المنصة"}
+                {forgot
+                  ? "إرسال رابط الاستعادة"
+                  : reset
+                    ? "حفظ كلمة المرور"
+                    : apply
+                      ? "إرسال الطلب"
+                      : activate
+                        ? "تفعيل حسابي"
+                        : "دخول المنصة"}
                 <ArrowLeft size={17} />
               </Button>
             </form>
           )}
-          {demo && !apply && !activate && (
+          {demo && signInPage && (
             <div className="demo">
               <small>تجربة المنصة ببيانات نموذجية</small>
               <div>
@@ -329,8 +373,15 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
               </div>
             </div>
           )}
-          <a className="auth-link" href={apply || activate ? "#" : "#apply"}>
-            {apply || activate
+          {signInPage && (
+            <div>
+              <a className="auth-link" href="#forgot">
+                نسيت كلمة المرور؟
+              </a>
+            </div>
+          )}
+          <a className="auth-link" href={signInPage ? "#apply" : "#"}>
+            {!signInPage
               ? "العودة إلى تسجيل الدخول"
               : "يريد مركزك الانضمام؟ قدّم طلبًا"}{" "}
             <ArrowLeft size={15} />
@@ -350,9 +401,19 @@ type PlatformData = {
     created: string;
     reason?: string;
   }[];
-  centers: { id: string; name: string; active: boolean }[];
+  centers: (Omit<Center, "roles" | "units"> & { active: boolean })[];
 };
-function Platform({ logout }: { logout: () => Promise<void> }) {
+function Platform({
+  user,
+  logout,
+}: {
+  user: Session;
+  logout: () => Promise<void>;
+}) {
+  const [tab, setTab] = useState("centers");
+  const [selected, setSelected] = useState("");
+  const [catalog, setCatalog] = useState<Catalog>();
+  const [credentials, setCredentials] = useState<IssuedCredentials>();
   const [data, setData] = useState<PlatformData>();
   const [error, setError] = useState("");
   const [token, setToken] = useState("");
@@ -366,13 +427,17 @@ function Platform({ logout }: { logout: () => Promise<void> }) {
       .catch((e) => setError(message(e)));
   useEffect(() => {
     void reload();
+    void api<Catalog>("/api/auth/catalog")
+      .then(setCatalog)
+      .catch((e) => setError(message(e)));
   }, []);
+  const current = data?.centers.find((x) => x.id === selected);
   return (
     <main className="standalone admin-platform">
       <div className="page-head">
         <div>
           <h1>إدارة المنصة</h1>
-          <p>طلبات انضمام المراكز وحالة التفعيل</p>
+          <p>المراكز والكتالوج والمناهج وصلاحيات الحسابات</p>
         </div>
         <Button kind="outline" onClick={() => void logout()}>
           <LogOut size={17} />
@@ -380,101 +445,155 @@ function Platform({ logout }: { logout: () => Promise<void> }) {
         </Button>
       </div>
       {error && <ErrorBox>{error}</ErrorBox>}
-      <section className="panel">
-        <h2>طلبات الانضمام</h2>
-        {data?.requests.length ? (
-          <Table headers={["المركز", "المدير", "البريد", "الحالة", ""]}>
-            {data.requests.map((r) => (
-              <tr key={r.id}>
-                <td>{r.name}</td>
-                <td>{r.contact}</td>
-                <td>{r.email}</td>
-                <td>
-                  <Badge
-                    value={r.state}
-                    text={
-                      {
-                        pending: "قيد المراجعة",
-                        approved: "مقبول",
-                        rejected: "مرفوض",
-                      }[r.state]
-                    }
-                  />
-                </td>
-                <td>
-                  {r.state === "pending" ? (
-                    <div className="actions">
-                      <Button
-                        onClick={() => setDecision({ id: r.id, approve: true })}
-                      >
-                        موافقة
-                      </Button>
-                      <Button
-                        kind="outline"
-                        onClick={() =>
-                          setDecision({ id: r.id, approve: false })
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        items={[
+          { value: "centers", name: "الطلبات والمراكز" },
+          { value: "configuration", name: "إعدادات المراكز" },
+          { value: "catalog", name: "كتالوج المنصة" },
+          { value: "account", name: "حسابي" },
+        ]}
+      />
+      {tab === "centers" && (
+        <>
+          <section className="panel">
+            <h2>طلبات الانضمام</h2>
+            {data?.requests.length ? (
+              <Table headers={["المركز", "المدير", "البريد", "الحالة", ""]}>
+                {data.requests.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.name}</td>
+                    <td>{r.contact}</td>
+                    <td>{r.email}</td>
+                    <td>
+                      <Badge
+                        value={r.state}
+                        text={
+                          {
+                            pending: "قيد المراجعة",
+                            approved: "مقبول",
+                            rejected: "مرفوض",
+                          }[r.state]
                         }
-                      >
-                        رفض
-                      </Button>
-                    </div>
-                  ) : (
-                    r.reason
-                  )}
-                </td>
-              </tr>
-            ))}
-          </Table>
-        ) : (
-          <Empty />
-        )}
-      </section>
-      <section className="panel">
-        <h2>المراكز</h2>
-        <Table headers={["المركز", "الحالة", ""]}>
-          {data?.centers.map((x) => (
-            <tr key={x.id}>
-              <td>{x.name}</td>
-              <td>
-                <Badge
-                  value={x.active ? "active" : "closed"}
-                  text={x.active ? "مفعّل" : "معلّق"}
-                />
-              </td>
-              <td>
-                <Button
-                  kind="outline"
-                  onClick={() =>
-                    void api("/api/auth/centers/" + x.id + "/active", "PUT", {
-                      value: !x.active,
-                    })
-                      .then(reload)
-                      .catch((e) => setError(message(e)))
-                  }
-                >
-                  {x.active ? "تعليق" : "تفعيل"}
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </section>
+                      />
+                    </td>
+                    <td>
+                      {r.state === "pending" ? (
+                        <div className="actions">
+                          <Button
+                            onClick={() =>
+                              setDecision({ id: r.id, approve: true })
+                            }
+                          >
+                            موافقة
+                          </Button>
+                          <Button
+                            kind="outline"
+                            onClick={() =>
+                              setDecision({ id: r.id, approve: false })
+                            }
+                          >
+                            رفض
+                          </Button>
+                        </div>
+                      ) : (
+                        r.reason
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </Table>
+            ) : (
+              <Empty />
+            )}
+          </section>
+          <section className="panel">
+            <h2>المراكز</h2>
+            <Table headers={["المركز", "الحالة", ""]}>
+              {data?.centers.map((x) => (
+                <tr key={x.id}>
+                  <td>{x.name}</td>
+                  <td>
+                    <Badge
+                      value={x.active ? "active" : "closed"}
+                      text={x.active ? "مفعّل" : "معلّق"}
+                    />
+                  </td>
+                  <td>
+                    <Button
+                      kind="outline"
+                      onClick={() =>
+                        void api(
+                          "/api/auth/centers/" + x.id + "/active",
+                          "PUT",
+                          {
+                            value: !x.active,
+                          },
+                        )
+                          .then(reload)
+                          .catch((e) => setError(message(e)))
+                      }
+                    >
+                      {x.active ? "تعليق" : "تفعيل"}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </section>
+        </>
+      )}
+      {tab === "catalog" && catalog && (
+        <CatalogEditor catalog={catalog} saved={setCatalog} />
+      )}
+      {tab === "configuration" && (
+        <>
+          <section className="card panel">
+            <Field label="اختر مركزًا">
+              <Select
+                options={options(data?.centers.filter((x) => x.active) ?? [])}
+                value={selected}
+                onChange={setSelected}
+                placeholder="اختر المركز"
+              />
+            </Field>
+          </section>
+          {current && catalog && (
+            <CenterConfiguration
+              key={current.id}
+              center={{ ...current, roles: [], units: [] }}
+              user={user}
+              catalog={catalog}
+              reload={reload}
+            />
+          )}
+        </>
+      )}
+      {tab === "account" && <ChangePassword />}
       {decision && (
         <Dialog
           title={decision.approve ? "الموافقة على انضمام المركز" : "رفض الطلب"}
           close={() => setDecision(null)}
           submit={async (f) => {
-            const r = await api<{ token?: string }>(
-              "/api/auth/requests/" + decision.id + "/decision",
-              "POST",
-              { approve: decision.approve, reason: val(f, "reason") },
-            );
+            const r = await api<{
+              token?: string;
+              credentials?: IssuedCredentials;
+            }>("/api/auth/requests/" + decision.id + "/decision", "POST", {
+              approve: decision.approve,
+              reason: val(f, "reason"),
+              temporary: true,
+            });
             if (r.token) setToken(r.token);
+            if (r.credentials?.temporaryPassword) setCredentials(r.credentials);
             await reload();
           }}
         >
           {decision.approve ? (
-            <p>يُنشأ المركز ويظهر رابط تفعيل مديره.</p>
+            <p>
+              يُنشأ المركز وتظهر بيانات دخول مديره أو رابط انضمامه إذا كان لديه
+              حساب.
+            </p>
           ) : (
             <Field label="سبب الرفض">
               <textarea name="reason" required />
@@ -483,6 +602,12 @@ function Platform({ logout }: { logout: () => Promise<void> }) {
         </Dialog>
       )}
       {token && <Invite token={token} close={() => setToken("")} />}
+      {credentials && (
+        <TemporaryCredentials
+          info={credentials}
+          close={() => setCredentials(undefined)}
+        />
+      )}
     </main>
   );
 }
@@ -527,6 +652,7 @@ function Workspace({
     education: Education;
     work: Work;
     staff: Staff[];
+    catalog: Catalog;
   }>();
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -538,13 +664,14 @@ function Workspace({
   const isManager = isAdmin || center.roles.includes("manager");
   const isTeacher = center.roles.includes("teacher");
   const refresh = useCallback(async () => {
-    const [people, education, work, staff] = await Promise.all([
+    const [people, education, work, staff, catalog] = await Promise.all([
       api<People>(endpoint + "/people"),
       api<Education>(endpoint + "/education"),
       api<Work>(endpoint + "/work"),
       api<Staff[]>(endpoint + "/identity/staff"),
+      api<Catalog>("/api/auth/catalog"),
     ]);
-    setData({ id: center.id, people, education, work, staff });
+    setData({ id: center.id, people, education, work, staff, catalog });
     setError("");
   }, [endpoint, center.id]);
   useEffect(() => {
@@ -573,7 +700,6 @@ function Workspace({
     items: s.items
       .filter(
         (i) =>
-          (i.scope !== "admin" || isAdmin) &&
           (i.scope !== "manager" || isManager) &&
           (i.key !== "home" || isManager),
       )
@@ -593,6 +719,7 @@ function Workspace({
         "recitation-course": "تفاصيل دورة التلاوة",
         import: "استيراد الطلاب",
         passkey: "مفتاح المرور",
+        password: "تغيير كلمة المرور",
       } as Record<string, string>
     )[route] ??
     "الرئيسية";
@@ -617,11 +744,10 @@ function Workspace({
       "recitation-course": () => <CourseDetail c={ctx} id={id} />,
       contests: () => <Contests c={ctx} />,
       reports: () => <Reports c={ctx} />,
-      staff: () => (isAdmin ? <StaffPage c={ctx} /> : <Empty />),
-      settings: () =>
-        isAdmin ? <Setup c={ctx} reloadUser={reloadUser} /> : <Empty />,
       import: () => (isAdmin ? <Imports c={ctx} /> : <Empty />),
       passkey: () => <PasskeyPage c={ctx} />,
+      duty: () => <StaffDuty c={ctx} />,
+      password: () => <ChangePassword />,
     };
     page = views[route]?.() ?? <Empty title="الصفحة غير متاحة" />;
   }
@@ -638,7 +764,8 @@ function Workspace({
         <div className="brand">
           <div className="logo-tile">
             {center.logo ||
-            center.id === "e751f402-dbd9-449f-9d01-40b525f06c29" ? (
+            (center.logo == null &&
+              center.id === "e751f402-dbd9-449f-9d01-40b525f06c29") ? (
               <img src={center.logo ?? logo} alt="" />
             ) : (
               <BookOpen size={21} />
@@ -751,6 +878,7 @@ function Workspace({
             </button>
             {menu && (
               <div className="account-menu">
+                <a href="#password">تغيير كلمة المرور</a>
                 <a href="#passkey">
                   <ShieldCheck size={16} />
                   مفتاح المرور

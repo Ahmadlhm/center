@@ -15,6 +15,7 @@ public sealed class MeetingPlanner(State store, ILogger<MeetingPlanner> logger) 
                 var centers = store.Local(Module.Identity)
                     ? await Identity.ActiveCenters(store)
                     : await store.Send<CenterInfo[]>(Module.Identity, "/internal/active-centers", new { });
+                var catalog = await Catalog.Read(store);
                 foreach (var center in centers)
                 {
                     var today = Rules.Today(center.TimeZone);
@@ -27,7 +28,7 @@ public sealed class MeetingPlanner(State store, ILogger<MeetingPlanner> logger) 
                     await store.Change<EducationData, bool>(Module.Education, center.Id, data =>
                     {
                         foreach (var group in groups.Where(g => !data.Meetings.Any(m => m.Group == g.Id && m.Date == today)))
-                            data.Meetings.Add(Education.ForGroup(group, today, people, data));
+                            data.Meetings.Add(Education.ForGroup(group, today, people, data, catalog));
                         return true;
                     });
                 }

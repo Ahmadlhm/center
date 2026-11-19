@@ -28,6 +28,7 @@ public static class Courses
         {
             var (actor, _) = await Identity.Context(store, http, center);
             var people = await store.Read<PeopleData>(Module.People, center);
+            var catalog = await Catalog.Read(store);
             var staff = await Identity.Staff(store, center);
             Rules.Require(input.Type is "private" or "central" or "recitation" && input.Status is "active" or "closed", "اختر نوع الدورة وحالتها.");
             Rules.Require(input.Groups.All(x => people.Groups.Any(y => y.Id == x)) && input.Students.All(x => people.Students.Any(y => y.Id == x)), "راجع شعب الدورة وطلابها.");
@@ -52,7 +53,8 @@ public static class Courses
                 }
                 if (input.Type == "recitation")
                 {
-                    Rules.Require((data.Settings ?? Rules.DefaultTeaching).Levels.Contains(input.Level), "اختر مستوى التلاوة.");
+                    Rules.Require(input.Level != null && (existing?.Level == input.Level || (Catalog.Settings(data, catalog).Levels.Contains(input.Level) &&
+                        !catalog.Levels.Any(x => x.Key == input.Level && !x.Active))), "اختر مستوى تلاوة نشطًا.");
                     Rules.Require(actor.Admin || (existing is null
                         ? commission is { State: "open" } && commission.Teacher == actor.Id && groupIds.SequenceEqual(commission.Groups) && input.Students.Length == 0
                         : existing.Groups.SequenceEqual(groupIds) && existing.Students.SequenceEqual(input.Students)), "يحدد المدير نطاق دورة التلاوة والمشاركين.", 403);
@@ -64,7 +66,11 @@ public static class Courses
                 Rules.Require(input.Criterion is "manual" or "complete", "اختر معيار الاجتياز.");
                 var teachers = actor.Admin ? requested : existing?.Teachers ?? [];
                 var course = new Course(id, Rules.Required(input.Name), input.Type, input.Type == "recitation" ? input.Level : null,
-                    owner, teachers, groupIds, input.Students.Distinct().ToArray(), input.Status, commission?.Id, input.Criterion);
+                    owner, teachers, groupIds, input.Students.Distinct().ToArray(), input.Status, commission?.Id, input.Criterion,
+                    input.Type == "recitation" ? (existing?.Level == input.Level ? existing?.Curriculum : null) ?? Catalog.Curriculum(catalog, input.Level) : null);
+                if (existing != null && existing.Level != course.Level)
+                    Rules.Require(!data.Grades.Any(x => x.Course == id) && !data.MemorizationChoices.Any(x => x.Course == id),
+                        "أنشئ دورة جديدة عند تغيير مقرر دورة فيها نتائج أو أجزاء مختارة.");
                 data.Courses.Upsert(x => x.Id == id, course);
                 var pending = data.CourseTeacherRequests.Find(x => x.Course == id);
                 if (actor.Admin && (existing == null || !requested.ToHashSet().SetEquals(existing.Teachers)))
@@ -117,6 +123,7 @@ public static class Courses
         g.MapGet("/courses/{id:guid}", async (Guid center, Guid id, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
+            var catalog = await Catalog.Read(store);
             var people = await store.Read<PeopleData>(Module.People, center);
             var data = await store.Read<EducationData>(Module.Education, center);
             var course = Rules.Found(data.Courses.Find(x => x.Id == id));
@@ -128,16 +135,43 @@ public static class Courses
             return new
             {
                 course = course with { Students = course.Students.Where(members.Contains).ToArray() },
+                curriculum = course.Curriculum ?? Catalog.Curriculum(catalog, course.Level),
+                memorization = data.MemorizationChoices.Where(x => x.Course == id && members.Contains(x.Student)),
                 teacherRequest = actor.Admin || course.Owner == actor.Id ? data.CourseTeacherRequests.Find(x => x.Course == id) : null,
                 students = people.Students.Where(x => members.Contains(x.Id)).Select(x => new { x.Id, x.Name, x.Number }),
                 grades = data.Grades.Where(x => x.Course == id && members.Contains(x.Student)),
                 meetings = data.Meetings.Where(x => x.Course == id || x.LessonCourse == id).Select(x => Education.Filter(actor, people, x, today))
             };
         });
+        g.MapPut("/courses/{id:guid}/students/{student:guid}/memorization", async (Guid center, Guid id, Guid student, MemorizationInput input, State store, HttpContext http) =>
+        {
+            var (actor, info) = await Identity.Context(store, http, center);
+            var people = await store.Read<PeopleData>(Module.People, center);
+            var catalog = await Catalog.Read(store);
+            return await store.Change<EducationData, CourseChoice>(Module.Education, center, data =>
+            {
+                var course = Rules.Found(data.Courses.Find(x => x.Id == id));
+                Rules.Require(actor.Admin || (actor.Teacher && course.Teachers.Contains(actor.Id)), "هذا المقرر خارج صلاحيتك.", 403);
+                Rules.Require(Education.CourseStudents(course, people, Rules.Today(info.TimeZone)).Contains(student), "الطالب غير مسجّل في الدورة.");
+                var curriculum = Rules.Found(course.Curriculum ?? Catalog.Curriculum(catalog, course.Level));
+                var excluded = curriculum.ExcludedJuz.Concat(curriculum.RequiredJuz).ToHashSet();
+                Rules.Require(curriculum.ChooseJuz > 0 && input.Juz.Length == curriculum.ChooseJuz &&
+                    input.Juz.Distinct().Count() == input.Juz.Length && input.Juz.All(j => !excluded.Contains(j) && catalog.Juz.Any(x => x.Number == j)),
+                    $"اختر {curriculum.ChooseJuz} أجزاء مختلفة من الأجزاء المسموحة.");
+                Rules.Require(actor.Admin || !data.Grades.Any(x => x.Course == id && x.Student == student && x.State == "passed"),
+                    "تعديل الأجزاء بعد اعتماد الاجتياز من صلاحيات مدير المركز.", 403);
+                var result = new CourseChoice(id, student, input.Juz);
+                data.MemorizationChoices.Upsert(x => x.Course == id && x.Student == student, result);
+                if (course.Curriculum is null) data.Courses.Upsert(x => x.Id == id, course with { Curriculum = curriculum });
+                data.Audit.Log(actor, "course.memorization", student);
+                return result;
+            });
+        });
         g.MapPut("/courses/{id:guid}/students/{student:guid}/grade", async (Guid center, Guid id, Guid student, GradeInput input, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
             var people = await store.Read<PeopleData>(Module.People, center);
+            var catalog = await Catalog.Read(store);
             var day = Rules.Today(info.TimeZone);
             return await store.Change<EducationData, Grade>(Module.Education, center, data =>
             {
@@ -146,6 +180,9 @@ public static class Courses
                 Rules.Require(Education.CourseStudents(course, people, day).Contains(student) ||
                     data.Meetings.Any(x => x.Course == id && x.Roster.Contains(student)), "الطالب غير مسجّل في الدورة.");
                 Rules.Require(input.State is "registered" or "completed" or "passed", "اختر حالة النتيجة.");
+                var curriculum = course.Curriculum ?? Catalog.Curriculum(catalog, course.Level);
+                if (input.State == "passed" && curriculum is { ChooseJuz: > 0 })
+                    Rules.Require(data.MemorizationChoices.Any(x => x.Course == id && x.Student == student), "سجّل أجزاء مقرر الحفظ قبل اعتماد الاجتياز.");
                 if (input.State == "passed" && course.Criterion == "complete")
                 {
                     var meetings = data.Meetings.Where(x => x.Course == id && x.State != "cancelled" && x.Roster.Contains(student)).ToArray();
@@ -176,7 +213,7 @@ public static class Courses
         });
         g.MapPut("/competitions/{id:guid}", async (Guid center, Guid id, ContestInput input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
+            var (actor, _) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             var people = await store.Read<PeopleData>(Module.People, center);
             var categories = input.Categories.Select(x => x with { Name = Rules.Required(x.Name) }).ToArray();
@@ -212,7 +249,7 @@ public static class Courses
                 Rules.Require((category.MinAge is null && category.MaxAge is null) ||
                     (age >= 0 && age >= (category.MinAge ?? 0) && age <= (category.MaxAge ?? 120)), "العمر خارج شروط الفئة أو تاريخ الميلاد غير مسجّل.");
                 Rules.Require(category.Unit is null || people.Enrollments.Any(x => x.Student == student.Id && x.Active(contest.Date) &&
-                    people.GroupAt(x.Group, contest.Date) is { } group && people.InScope(group.Unit, [category.Unit.Value])), "الطالب خارج الوحدة المؤهلة في تاريخ المسابقة.");
+                    people.GroupAt(x.Group, contest.Date) is { } group && people.InScope(group.Unit, [category.Unit.Value], contest.Date)), "الطالب خارج الوحدة المؤهلة في تاريخ المسابقة.");
                 Rules.Require(contest.Multiple || !data.Entries.Any(x => x.Competition == id && x.Student == student.Id && x.Category != category.Id), "يسمح للطالب بفئة واحدة.");
                 Rules.Require(input.Score is null or >= 0 and <= 100 && input.Rank is null or >= 1, "الدرجة أو المركز غير صحيح.");
                 var existing = data.Entries.Find(x => x.Competition == id && x.Category == category.Id && x.Student == student.Id);
@@ -232,6 +269,7 @@ public static class Courses
     public record CommissionInput(string Title, Guid Teacher, Guid[] Groups);
     public record CourseInput(string Name, string Type, string? Level, Guid[] Teachers, Guid[] Groups, Guid[] Students, string Status, Guid? Commission, string Criterion = "manual");
     public record GradeInput(string State);
+    public record MemorizationInput(int[] Juz);
     public record FollowInput(Guid Student, Guid Group, string Text, DateOnly Due, bool Done);
     public record ContestInput(string Name, DateOnly Date, bool Multiple, Category[] Categories);
     public record EntryInput(Guid Student, Guid Category, decimal? Score, int? Rank);

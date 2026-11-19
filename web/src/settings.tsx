@@ -1,3 +1,5 @@
+import { TemporaryCredentials, type IssuedCredentials } from "./passwords";
+import { levelName } from "./quran";
 import { useState } from "react";
 import { FolderTree, MapPin, Settings2, UserPlus } from "lucide-react";
 import {
@@ -229,7 +231,7 @@ export function Setup({
           </CardHead>
           <div className="info-strip">
             {c.education.settings.levels.map((x) => (
-              <b key={x}>{x}</b>
+              <b key={x}>{levelName(c.catalog, x)}</b>
             ))}
           </div>
           <Table headers={["نوع اللقاء", "يُطلب درس", "تُطلب متابعة التسميع"]}>
@@ -345,6 +347,7 @@ export function Setup({
               name: val(form, "name"),
               timeZone: val(form, "timeZone"),
               logo,
+              mapUrl: val(form, "mapUrl"),
             });
             await reloadUser();
             await c.refresh();
@@ -363,7 +366,16 @@ export function Setup({
               placeholder="Asia/Amman"
             />
           </Field>
-          <Field label="شعار المركز">
+          <Field label="رابط موقع المركز">
+            <input
+              name="mapUrl"
+              type="url"
+              dir="ltr"
+              defaultValue={c.center.mapUrl ?? ""}
+              placeholder="https://..."
+            />
+          </Field>
+          <Field label="صورة المركز">
             <input name="logo" type="file" accept="image/png,image/jpeg" />
           </Field>
           {c.center.logo && (
@@ -408,18 +420,24 @@ function UnitForm({
       <Field label="تسمية المستوى">
         <input
           name="kind"
-          defaultValue={item?.kind ?? "قسم"}
+          list="unit-kind-options"
+          defaultValue={item?.kind ?? c.catalog.unitKinds[0] ?? ""}
           required
           placeholder="فرع، قسم، برنامج…"
         />
+        <datalist id="unit-kind-options">
+          {c.catalog.unitKinds.map((x) => (
+            <option key={x} value={x} />
+          ))}
+        </datalist>
       </Field>
-      {!item && (
+      {
         <Field label="الوحدة الأصل">
           <Select
             value={parent}
             onChange={setParent}
             options={c.people.units
-              .filter((x) => x.active)
+              .filter((x) => x.active && x.id !== item?.id)
               .map((x) => ({
                 value: x.id,
                 name: unitPath(c.people.units, x.id),
@@ -427,7 +445,7 @@ function UnitForm({
             placeholder="وحدة رئيسية"
           />
         </Field>
-      )}
+      }
       {item && (
         <label className="check-line">
           <input
@@ -462,11 +480,20 @@ function RuleForm({ c, close }: { c: Context; close: () => void }) {
           longitude: lon ? Number(lon) : null,
           radius: num(form, "radius"),
           accuracy: num(form, "accuracy"),
+          allowAttendanceReview: form.has("review"),
         });
         await c.refresh();
         c.notify("حُفظت قواعد التشغيل");
       }}
     >
+      <label className="check-line">
+        <input
+          type="checkbox"
+          name="review"
+          defaultChecked={rule.allowAttendanceReview}
+        />
+        السماح بطلب مراجعة إثبات الحضور
+      </label>
       <div className="form-grid">
         <Field label="تاريخ السريان">
           <input
@@ -666,6 +693,9 @@ function EducationSettings({ c, close }: { c: Context; close: () => void }) {
 export function StaffPage({ c }: { c: Context }) {
   const [invite, setInvite] = useState(false);
   const [token, setToken] = useState("");
+  const [credentials, setCredentials] = useState<IssuedCredentials>();
+  const [reset, setReset] = useState<Staff>();
+  const [clearKeys, setClearKeys] = useState<Staff>();
   const [activeStaff, setActiveStaff] = useState<Staff>();
   const [roles, setRoles] = useState<string[]>([]);
   const [units, setUnits] = useState<string[]>([]);
@@ -717,6 +747,16 @@ export function StaffPage({ c }: { c: Context }) {
                     تعديل
                   </Button>
                 )}
+                {s.active && (
+                  <Button kind="outline" onClick={() => setReset(s)}>
+                    كلمة مرور مؤقتة
+                  </Button>
+                )}
+                {s.active && (
+                  <Button kind="outline" onClick={() => setClearKeys(s)}>
+                    إبطال مفاتيح المرور
+                  </Button>
+                )}
               </td>
             </tr>
           ))}
@@ -729,6 +769,7 @@ export function StaffPage({ c }: { c: Context }) {
           submit={async (form) => {
             if (activeStaff) {
               await api(f(c, "/identity/staff/" + activeStaff.id), "PUT", {
+                name: val(form, "name"),
                 roles,
                 units,
                 active: form.has("active"),
@@ -736,7 +777,7 @@ export function StaffPage({ c }: { c: Context }) {
               await c.refresh();
               c.notify("حُدّث الموظف");
             } else {
-              const r = await api<{ token: string }>(
+              const r = await api<IssuedCredentials>(
                 f(c, "/identity/staff/invite"),
                 "POST",
                 {
@@ -746,19 +787,26 @@ export function StaffPage({ c }: { c: Context }) {
                   units,
                 },
               );
-              setToken(r.token);
+              if (r.temporaryPassword) setCredentials(r);
+              if (r.token) setToken(r.token);
+              await c.refresh();
             }
           }}
         >
           {activeStaff ? (
-            <label className="check-line">
-              <input
-                type="checkbox"
-                name="active"
-                defaultChecked={activeStaff.active}
-              />
-              العضوية نشطة
-            </label>
+            <>
+              <Field label="اسم الحساب">
+                <input name="name" defaultValue={activeStaff.name} required />
+              </Field>
+              <label className="check-line">
+                <input
+                  type="checkbox"
+                  name="active"
+                  defaultChecked={activeStaff.active}
+                />
+                العضوية نشطة
+              </label>
+            </>
           ) : (
             <>
               <Field label="اسم الموظف">
@@ -798,6 +846,47 @@ export function StaffPage({ c }: { c: Context }) {
         </Dialog>
       )}
       {token && <Invite token={token} close={() => setToken("")} />}
+      {credentials && (
+        <TemporaryCredentials
+          info={credentials}
+          close={() => setCredentials(undefined)}
+        />
+      )}
+      {clearKeys && (
+        <Dialog
+          title={"إبطال مفاتيح مرور " + clearKeys.name}
+          close={() => setClearKeys(undefined)}
+          submit={async () => {
+            await api(
+              f(c, "/identity/staff/" + clearKeys.id + "/passkeys"),
+              "DELETE",
+            );
+            c.notify("أُبطلت مفاتيح المرور");
+          }}
+          confirm="إبطال المفاتيح"
+        >
+          <p>يُسجّل الموظف دخوله من جديد ويضيف مفتاح مرور جديدًا من جهازه.</p>
+        </Dialog>
+      )}
+      {reset && (
+        <Dialog
+          title={"كلمة مرور مؤقتة لـ " + reset.name}
+          close={() => setReset(undefined)}
+          submit={async () => {
+            const result = await api<IssuedCredentials>(
+              f(c, "/identity/staff/" + reset.id + "/temporary"),
+              "POST",
+            );
+            setCredentials(result);
+          }}
+          confirm="إصدار كلمة مرور"
+        >
+          <p>
+            تنتهي الجلسات الحالية ويغيّر صاحب الحساب كلمة المرور عند دخوله
+            القادم.
+          </p>
+        </Dialog>
+      )}
     </>
   );
 }

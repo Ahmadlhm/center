@@ -42,7 +42,9 @@ import {
   options,
   val,
 } from "./ui";
-import { admin, f, SpanInputs, Summary } from "./learning";
+import { admin, f, Summary } from "./learning";
+import { SpanInputs, SpanPicker } from "./span-picker";
+import type { Catalog } from "./quran";
 type MeetingData = {
   meeting: Meeting;
   students: { id: string; name: string; number: string }[];
@@ -458,6 +460,7 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
       )}
       {reading && (
         <ReadingForm
+          catalog={c.catalog}
           mark={marks.find((x) => x.student === reading)!}
           name={data.students.find((s) => s.id === reading)?.name ?? ""}
           close={() => setReading(null)}
@@ -468,24 +471,24 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
   );
 }
 function ReadingForm({
+  catalog,
   mark,
   name,
   close,
   save,
 }: {
+  catalog: Catalog;
   mark: Mark;
   name: string;
   close: () => void;
   save: (patch: Partial<Mark>) => void;
 }) {
   const initial: Reading = {
-    span: { surah: 114, from: 1, to: 6 },
+    span: { surah: catalog.surahs[0].number, from: 1, to: 1 },
     kind: "new",
     result: "passed",
   };
-  const [rows, setRows] = useState<Reading[]>(
-    mark.readings.length ? mark.readings : [initial],
-  );
+  const [rows, setRows] = useState<Reading[]>(mark.readings);
   const [skip, setSkip] = useState(mark.practice === "skip");
   const edit = (i: number, patch: Partial<Reading>) =>
     setRows(rows.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -517,6 +520,7 @@ function ReadingForm({
             <div className="reading-edit" key={i}>
               <div className="reading-row">
                 <SpanInputs
+                  catalog={catalog}
                   value={r.span}
                   onChange={(span) => edit(i, { span })}
                 />
@@ -553,10 +557,15 @@ function ReadingForm({
               </div>
             </div>
           ))}
-          <Button kind="outline" onClick={() => setRows([...rows, initial])}>
-            <Plus size={16} />
-            مقطع آخر
-          </Button>
+          <SpanPicker
+            catalog={catalog}
+            add={(ranges) =>
+              setRows((rows) => [
+                ...rows,
+                ...ranges.map((span) => ({ ...initial, span })),
+              ])
+            }
+          />
         </>
       )}
       <Field label={skip ? "سبب عدم التسميع" : "ملاحظة (اختياري)"}>

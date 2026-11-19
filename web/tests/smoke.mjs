@@ -107,19 +107,19 @@ try {
   );
   const unit = randomUUID(),
     child = randomUUID();
-  await json(applicant, "PUT", api(second, "/people/units/" + unit), {
+  await json(platform, "PUT", api(second, "/people/units/" + unit), {
     name: "برنامج القراءة",
     kind: "برنامج",
     parent: null,
     active: true,
   });
-  await json(applicant, "PUT", api(second, "/people/units/" + child), {
+  await json(platform, "PUT", api(second, "/people/units/" + child), {
     name: "المستوى الأول",
     kind: "مستوى",
     parent: unit,
     active: true,
   });
-  await json(applicant, "POST", api(second, "/people/rules"), {
+  await json(platform, "POST", api(second, "/people/rules"), {
     ...empty.rule,
     effective: empty.today,
     groupLimit: 2,

@@ -21,16 +21,13 @@ public static class Education
         (meeting.Group is Guid id && people.Groups.Any(g => g.Id == id && actor.CanSee(people, g))) ||
         (actor.Manager && meeting.Roster.Any(id => people.Enrollments.Any(e => e.Student == id && e.Active(meeting.Date) &&
             people.GroupAt(e.Group, meeting.Date) is { } group && people.InScope(group.Unit, actor.Units))));
-    private static readonly MeetingType[] TajweedTypes =
-        [new("theory", "نظري", true, false), new("tajweed-practical", "عملي", true, false)];
-
-    public static MeetingType[] Types(EducationData data, Course? course) =>
-        course?.Type == "recitation" ? TajweedTypes : (data.Settings ?? Rules.DefaultTeaching).Types;
+    public static MeetingType[] Types(EducationData data, Course? course, PlatformCatalog catalog) =>
+        course?.Type == "recitation" ? catalog.TajweedTypes : Catalog.Settings(data, catalog).Types;
 
     public static bool IsRecitation(EducationData data, Meeting meeting) =>
         data.Courses.Any(x => x.Type == "recitation" && x.Id == meeting.Course);
 
-    private static string TajweedKind(string kind) => kind == "theory" ? kind : "tajweed-practical";
+    private static string TajweedKind(string kind, PlatformCatalog catalog) => catalog.TajweedTypes.Any(x => x.Key == kind) ? kind : "tajweed-practical";
 
     public static void Map(WebApplication app)
     {
@@ -44,11 +41,12 @@ public static class Education
             var people = await peopleTask;
             var data = await dataTask;
             var today = Rules.Today(info.TimeZone);
+            var catalog = await Catalog.Read(store);
             var courses = data.Courses.Where(x => CanSeeCourse(actor, people, x)).Select(x => actor.Admin || x.Teachers.Contains(actor.Id)
                 ? x : x with { Students = x.Students.Where(id => People.CanSeeStudent(actor, people, id, today)).ToArray() }).ToArray();
             return new
             {
-                settings = data.Settings ?? Rules.DefaultTeaching,
+                settings = Catalog.Settings(data, catalog),
                 meetings = data.Meetings.Where(x => VisibleMeeting(actor, people, x)).Select(x => Filter(actor, people, x, today)),
                 courses,
                 commissions = data.Commissions.Where(x => actor.Admin || x.Teacher == actor.Id),
@@ -56,6 +54,13 @@ public static class Education
                 competitions = data.Competitions,
                 entries = data.Entries.Where(x => People.CanSeeStudent(actor, people, x.Student, today))
             };
+        });
+        g.MapGet("/configuration", async (Guid center, State store, HttpContext http) =>
+        {
+            await Identity.Context(store, http, center, configuration: true);
+            var data = await store.Read<EducationData>(Module.Education, center);
+            var catalog = await Catalog.Read(store);
+            return new { settings = Catalog.Settings(data, catalog), data.Competitions };
         });
         g.MapGet("/students/{id:guid}", async (Guid center, Guid id, State store, HttpContext http) =>
         {
@@ -92,6 +97,7 @@ public static class Education
         g.MapPost("/groups/{groupId:guid}/meeting", async (Guid center, Guid groupId, Dated input, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
+            var catalog = await Catalog.Read(store);
             var people = await store.Read<PeopleData>(Module.People, center);
             var group = Rules.Found(people.GroupAt(groupId, input.Date));
             Rules.Require(actor.Admin || (actor.Teacher && group.Teacher == actor.Id), "هذه الشعبة خارج صلاحيتك.", 403);
@@ -101,7 +107,7 @@ public static class Education
             {
                 var existing = data.Meetings.Find(x => x.Group == groupId && x.Date == input.Date && x.Replaces is null);
                 if (existing is not null) return existing;
-                var meeting = ForGroup(group, input.Date, people, data);
+                var meeting = ForGroup(group, input.Date, people, data, catalog);
                 data.Meetings.Add(meeting);
                 data.Audit.Log(actor, "meeting.create", meeting.Id);
                 return meeting;
@@ -110,6 +116,7 @@ public static class Education
         g.MapPost("/meetings", async (Guid center, NewMeeting input, State store, HttpContext http) =>
         {
             var (actor, _) = await Identity.Context(store, http, center);
+            var catalog = await Catalog.Read(store);
             var people = await store.Read<PeopleData>(Module.People, center);
             var staff = await Identity.Staff(store, center);
             Rules.Require(input.From < input.To && (input.Group.HasValue != input.Course.HasValue), "اختر شعبة أو دورة وموعدًا صالحًا.");
@@ -118,7 +125,7 @@ public static class Education
                 var group = input.Group is Guid groupId ? Rules.Found(people.GroupAt(groupId, input.Date)) : null;
                 var course = input.Course is Guid courseId ? Rules.Found(data.Courses.Find(x => x.Id == courseId)) : null;
                 Rules.Require(actor.Admin || (actor.Teacher && course?.Owner == actor.Id), "ليس لديك صلاحية لجدولة هذا اللقاء.", 403);
-                var type = Types(data, course).FirstOrDefault(x => x.Key == input.Kind);
+                var type = Types(data, course, catalog).FirstOrDefault(x => x.Key == input.Kind);
                 Rules.Require(type != null, "نوع اللقاء غير متاح لهذه الدورة.");
                 var practiceBy = type!.Practice ? input.PracticeBy : input.LessonBy;
                 var teachers = new[] { input.AttendanceBy, input.LessonBy, practiceBy }.Distinct().ToArray();
@@ -167,6 +174,7 @@ public static class Education
         g.MapGet("/meetings/{id:guid}", async (Guid center, Guid id, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
+            var catalog = await Catalog.Read(store);
             var people = await store.Read<PeopleData>(Module.People, center);
             var data = await store.Read<EducationData>(Module.Education, center);
             var meeting = Rules.Found(data.Meetings.Find(x => x.Id == id));
@@ -175,15 +183,16 @@ public static class Education
             var course = data.Courses.Find(c => c.Id == meeting.Course);
             if (course?.Type == "recitation") meeting = meeting with
             {
-                Kind = TajweedKind(meeting.Kind),
+                Kind = TajweedKind(meeting.Kind, catalog),
                 Marks = meeting.Marks.Select(x => x with { Readings = [], Practice = null }).ToArray()
             };
             return new { meeting, students = people.Students.Where(x => meeting.Roster.Contains(x.Id)).Select(x => new { x.Id, x.Name, x.Number }),
-                types = Types(data, course) };
+                types = Types(data, course, catalog) };
         });
         g.MapPut("/meetings/{id:guid}", async (Guid center, Guid id, SaveMeeting input, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
+            var catalog = await Catalog.Read(store);
             var people = await store.Read<PeopleData>(Module.People, center);
             return await store.Change<EducationData, Meeting>(Module.Education, center, data =>
             {
@@ -197,7 +206,7 @@ public static class Education
                 var mayMark = actor.Admin || old.AttendanceBy == actor.Id;
                 var mayTeach = actor.Admin || old.LessonBy == actor.Id;
                 var recitation = IsRecitation(data, old);
-                var type = Rules.Found(Types(data, data.Courses.Find(c => c.Id == old.Course)).FirstOrDefault(x => x.Key == (recitation ? TajweedKind(old.Kind) : old.Kind)));
+                var type = Rules.Found(Types(data, data.Courses.Find(c => c.Id == old.Course), catalog).FirstOrDefault(x => x.Key == (recitation ? TajweedKind(old.Kind, catalog) : old.Kind)));
                 var mayPractice = type.Practice && (actor.Admin || old.PracticeBy == actor.Id);
                 Rules.Require(!recitation || input.Marks.All(x => x.Practice is null && x.Readings.Length == 0), "لقاءات التجويد ترصد الحضور والدرس النظري أو العملي.");
                 Rules.Require(input.Marks.Select(x => x.Student).Distinct().Count() == input.Marks.Length && input.Marks.All(x => old.Roster.Contains(x.Student)), "كشف الطلاب غير صالح.");
@@ -209,8 +218,9 @@ public static class Education
                     if (mayPractice)
                     {
                         Rules.Require(next.Practice is null or "done" or "skip" or "optional", "حالة التسميع غير صحيحة.");
-                        Rules.Require(next.Readings.Length <= 30 && next.Readings.All(x => x.Kind is "new" or "review" && x.Result is "passed" or "repeat"), "راجع التسميع.");
-                        foreach (var reading in next.Readings) Rules.Verses(reading.Span);
+                        Rules.Require(next.Readings.Length <= 500 && next.Readings.All(x => x.Kind is "new" or "review" && x.Result is "passed" or "repeat"), "راجع التسميع.");
+                        foreach (var reading in next.Readings)
+                            if (!previous.Readings.Contains(reading)) catalog.Validate(reading.Span);
                         if (next.Practice == "done") Rules.Require(next.Readings.Length > 0, "أضف مقطع تسميع للطالب.");
                         if (next.Practice == "skip") Rules.Required(next.Note, 500);
                     }
@@ -237,7 +247,8 @@ public static class Education
         });
         g.MapPut("/settings", async (Guid center, MeetingSettings input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
+            var (actor, _) = await Identity.Context(store, http, center, configuration: true);
+            var catalog = await Catalog.Read(store);
             actor.Admin();
             Rules.Require(input.Levels.Length is > 0 and <= 20 && input.Types.Length is > 0 and <= 20 &&
                 input.Types.Select(x => x.Key).Distinct().Count() == input.Types.Length, "حدّد المستويات وأنواع اللقاءات.");
@@ -245,7 +256,7 @@ public static class Education
             foreach (var type in input.Types) { Rules.Required(type.Key, 40); Rules.Required(type.Name, 60); }
             return await store.Change<EducationData, MeetingSettings>(Module.Education, center, data =>
             {
-                var previous = (data.Settings ?? Rules.DefaultTeaching).Types;
+                var previous = Catalog.Settings(data, catalog).Types;
                 Rules.Require(data.Meetings.All(m => IsRecitation(data, m) || input.Types.Contains(previous.First(x => x.Key == m.Kind))) &&
                     data.Courses.All(c => c.Level is null || input.Levels.Contains(c.Level)), "الأنواع والمستويات المستخدمة في السجلات تبقى معتمدة. أضف نوعًا أو مستوى جديدًا.");
                 data.Settings = input;
@@ -256,10 +267,10 @@ public static class Education
         Courses.Map(g);
         Notifications.Map(g);
     }
-    public static Meeting ForGroup(Group group, DateOnly day, PeopleData people, EducationData data)
+    public static Meeting ForGroup(Group group, DateOnly day, PeopleData people, EducationData data, PlatformCatalog catalog)
     {
         var roster = people.Enrollments.Where(x => x.Group == group.Id && x.Active(day)).Select(x => x.Student).Distinct().ToArray();
-        var type = (data.Settings ?? Rules.DefaultTeaching).Types.First();
+        var type = Catalog.Settings(data, catalog).Types.First();
         return Build(group.Id, null, day, group.From, group.To, type.Key, group.Teacher, group.Teacher, group.Teacher,
             [group.Teacher], roster, group.Unit, people.At(day).Version);
     }

@@ -13,6 +13,7 @@ const open = () =>
 const admin = await open();
 const teacher = await open();
 const colleague = await open();
+const platform = await open();
 
 async function call(context, method, path, data, expected = 200) {
   const response = await context.fetch(path, { method, data });
@@ -30,6 +31,7 @@ try {
     login(admin, "admin@demo.local", "Demo-Admin-2026!"),
     login(teacher, "teacher@demo.local", "Demo-Teacher-2026!"),
     login(colleague, "omar@demo.local", "Demo-Omar-2026!"),
+    login(platform, "platform@demo.local", "Demo-Platform-2026!"),
   ]);
   const people = await call(teacher, "GET", center + "/people");
   const all = await call(admin, "GET", center + "/people");
@@ -223,7 +225,7 @@ try {
     categories: [category],
   };
   await call(
-    admin,
+    platform,
     "PUT",
     education + "/competitions/" + competitionId,
     competition,
@@ -313,5 +315,10 @@ try {
   );
 } finally {
   await browser?.close();
-  await Promise.all([admin.dispose(), teacher.dispose(), colleague.dispose()]);
+  await Promise.all([
+    platform.dispose(),
+    admin.dispose(),
+    teacher.dispose(),
+    colleague.dispose(),
+  ]);
 }

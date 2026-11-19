@@ -1,4 +1,3 @@
-import { surahs } from "./quran";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   BookOpen,
@@ -81,7 +80,14 @@ const next = (g: Group, today: string) =>
   Array.from({ length: 8 }, (_, i) => offset(today, i)).find(
     (x) => x >= g.start && (!g.end || x < g.end) && g.days.includes(dayOf(x)),
   );
-export function Groups({ c }: { c: Context }) {
+export function Groups({
+  c,
+  configuration = false,
+}: {
+  c: Context;
+  configuration?: boolean;
+}) {
+  const [editing, setEditing] = useState<Group>();
   const [search, setSearch] = useState("");
   const [unit, setUnit] = useState("");
   const [modal, setModal] = useState(false);
@@ -114,7 +120,16 @@ export function Groups({ c }: { c: Context }) {
             : "متابعة الشعب والجداول والحضور في المركز."
         }
       >
-        {admin(c) && <Add onClick={() => setModal(true)}>إضافة شعبة</Add>}
+        {configuration && (
+          <Add
+            onClick={() => {
+              setEditing(undefined);
+              setModal(true);
+            }}
+          >
+            إضافة شعبة
+          </Add>
+        )}
       </PageHead>
       <div className="toolbar">
         <SearchBox
@@ -151,7 +166,11 @@ export function Groups({ c }: { c: Context }) {
                   {unitPath(c.people.units, g.unit)}
                 </div>
                 <h2>
-                  <a href={"#group/" + g.id}>{g.name}</a>
+                  {configuration ? (
+                    g.name
+                  ) : (
+                    <a href={"#group/" + g.id}>{g.name}</a>
+                  )}
                 </h2>
                 <div className="group-meta">
                   <span>
@@ -171,14 +190,28 @@ export function Groups({ c }: { c: Context }) {
                     : "لا يوجد موعد قادم"}
                 </p>
                 <div className="group-foot">
-                  <a href={"#group/" + g.id}>
-                    لوحة الشعبة <ChevronLeft size={16} />
-                  </a>
-                  {day === c.people.today && editGroup(c, g) && (
-                    <Button onClick={() => void openMeeting(c, g, day)}>
-                      فتح حصة اليوم
+                  {configuration ? (
+                    <Button
+                      kind="outline"
+                      onClick={() => {
+                        setEditing(g);
+                        setModal(true);
+                      }}
+                    >
+                      تعديل الشعبة
                     </Button>
+                  ) : (
+                    <a href={"#group/" + g.id}>
+                      لوحة الشعبة <ChevronLeft size={16} />
+                    </a>
                   )}
+                  {day === c.people.today &&
+                    !configuration &&
+                    editGroup(c, g) && (
+                      <Button onClick={() => void openMeeting(c, g, day)}>
+                        فتح حصة اليوم
+                      </Button>
+                    )}
                 </div>
               </article>
             );
@@ -196,7 +229,9 @@ export function Groups({ c }: { c: Context }) {
           />
         </div>
       )}
-      {modal && <GroupForm c={c} close={() => setModal(false)} />}
+      {modal && configuration && (
+        <GroupForm c={c} group={editing} close={() => setModal(false)} />
+      )}
     </>
   );
 }
@@ -354,7 +389,7 @@ export function GroupDetail({ c, id }: { c: Context; id: string }) {
         }
         crumb={<a href="#groups">الشعب</a>}
       >
-        {admin(c) && (
+        {c.user.platform && (
           <Button kind="outline" onClick={() => setEdit(true)}>
             تعديل الشعبة
           </Button>
@@ -573,46 +608,6 @@ export function Summary({
         <small>{title}</small>
         <b>{value}</b>
       </div>
-    </div>
-  );
-}
-export function SpanInputs({
-  value,
-  onChange,
-}: {
-  value: Span;
-  onChange: (v: Span) => void;
-}) {
-  return (
-    <div className="span-fields">
-      <Field label="السورة">
-        <Select
-          options={surahs.map((name, i) => ({ name, value: String(i + 1) }))}
-          value={String(value.surah)}
-          onChange={(v) => onChange({ ...value, surah: Number(v) })}
-          required
-        />
-      </Field>
-      <Field label="من آية">
-        <input
-          type="number"
-          min="1"
-          max="286"
-          required
-          value={value.from || ""}
-          onChange={(e) => onChange({ ...value, from: +e.target.value })}
-        />
-      </Field>
-      <Field label="إلى آية">
-        <input
-          type="number"
-          min="1"
-          max="286"
-          required
-          value={value.to || ""}
-          onChange={(e) => onChange({ ...value, to: +e.target.value })}
-        />
-      </Field>
     </div>
   );
 }

@@ -153,17 +153,17 @@ public static class Transfers
                 ? Education.CanSeeCourse(actor, people, x)
                 : x.Teachers.Contains(actor.Id)).ToArray();
             Rules.Require(course is null || allowedCourses.Any(x => x.Id == course), "الدورة خارج صلاحيتك.", 403);
-            bool Matching(Group x) => (group is null || x.Id == group) && (unit is null || people.InScope(x.Unit, [unit.Value]));
+            bool Matching(Group x, DateOnly day) => (group is null || x.Id == group) && (unit is null || people.InScope(x.Unit, [unit.Value], day));
             var hasScopeFilter = group != null || unit != null;
             bool InGroup(Guid student, DateOnly day) => people.Enrollments.Any(x => x.Student == student && x.Active(day) &&
-                people.GroupAt(x.Group, day) is { } target && Matching(target));
-            var groups = people.Groups.Select(x => people.GroupAt(x.Id, end)).OfType<Group>().Where(x => x.Active(end) && actor.CanSee(people, x) && Matching(x)).ToArray();
+                people.GroupAt(x.Group, day) is { } target && Matching(target, day));
+            var groups = people.Groups.Select(x => people.GroupAt(x.Id, end)).OfType<Group>().Where(x => x.Active(end) && actor.CanSee(people, x) && Matching(x, end)).ToArray();
             var enrollments = people.Enrollments.Where(x => x.Active(end) && groups.Any(y => y.Id == x.Group)).ToArray();
             var filtered = education.Meetings.Where(x => x.Date >= start && x.Date <= end && x.State != "cancelled" &&
                     Education.VisibleMeeting(actor, people, x) && (course is null || x.Course == course || x.LessonCourse == course))
                 .Select(x => Education.Filter(actor, people, x, end))
                 .Where(x => !hasScopeFilter || (x.Group is Guid id
-                    ? people.GroupAt(id, x.Date) is { } target && Matching(target)
+                    ? people.GroupAt(id, x.Date) is { } target && Matching(target, x.Date)
                     : x.Roster.Any(student => InGroup(student, x.Date))))
                 .Select(x => hasScopeFilter && x.Group is null ? x with
                     {
@@ -188,7 +188,7 @@ public static class Transfers
                 columns = ["الدورة", "المستوى", "الحالة", "لقاءات في الفترة", "أكمل", "اجتاز"];
                 foreach (var item in allowedCourses.Where(x => (x.Type == "recitation") == (kind == "recitation") &&
                     (course is null || x.Id == course) &&
-                    (!hasScopeFilter || x.Groups.Any(id => people.GroupAt(id, end) is { } target && Matching(target)) ||
+                    (!hasScopeFilter || x.Groups.Any(id => people.GroupAt(id, end) is { } target && Matching(target, end)) ||
                         x.Students.Any(student => InGroup(student, end)) || filtered.Any(m => m.Course == x.Id || m.LessonCourse == x.Id))))
                 {
                     var grades = education.Grades.Where(x => x.Course == item.Id && x.Date >= start && x.Date <= end &&
@@ -215,12 +215,29 @@ public static class Transfers
             else if (kind == "work")
             {
                 title = "متابعة المعلّمين";
-                columns = ["التاريخ", "المعلّم", "الدوام", "الحضور المرصود", "الدرس", "التسميع"];
+                columns = ["التاريخ", "الموظف", "الدوام", "الحضور المرصود", "الدرس", "التسميع"];
+                if (actor.Admin && unit is null && group is null && course is null)
+                {
+                    var checkIns = work.CheckIns.ToDictionary(x => (x.Meeting, x.Teacher));
+                    foreach (var employee in work.Shifts.Select(x => x.Employee).Distinct())
+                        for (var dayNumber = start.DayNumber; dayNumber <= end.DayNumber; dayNumber++)
+                        {
+                            var day = DateOnly.FromDayNumber(dayNumber);
+                            var shift = StaffDuties.Shift(work, employee, day);
+                            var checkIn = checkIns.GetValueOrDefault((StaffDuties.Occurrence(employee, day), employee));
+                            if (checkIn is null && (shift is null || !shift.Active || !shift.Days.Contains(day.DayOfWeek))) continue;
+                            rows.Add([Rules.Iso(day), Teacher(employee), checkIn?.State switch
+                            {
+                                "verified" => TimeZoneInfo.ConvertTime(checkIn.At, TimeZoneInfo.FindSystemTimeZoneById(info.TimeZone)).ToString("HH:mm"),
+                                "manual" => "معتمد يدويًا", "absent" => "غائب", "pending" => "قيد المراجعة", _ => "غير مرصود"
+                            }, "دوام الموظف", "—", "—"]);
+                        }
+                }
                 foreach (var meeting in filtered)
                     foreach (var teacher in meeting.Teachers.Where(t => actor.Admin || actor.Manager || t == actor.Id))
                     {
                         var check = work.CheckIns.Find(x => x.Teacher == teacher && x.Meeting == meeting.Id);
-                        if (actor.Manager && !actor.Admin && !people.InScope(meeting.Unit, actor.Units) && teacher != actor.Id) continue;
+                        if (actor.Manager && !actor.Admin && !people.InScope(meeting.Unit, actor.Units, meeting.Date) && teacher != actor.Id) continue;
                         rows.Add([Rules.Iso(meeting.Date), Teacher(teacher), check?.State switch
                         {
                             "verified" => TimeZoneInfo.ConvertTime(check.At, TimeZoneInfo.FindSystemTimeZoneById(info.TimeZone)).ToString("HH:mm"),
@@ -232,7 +249,7 @@ public static class Transfers
                 foreach (var task in work.Tasks.Where(x => x.Due >= start && x.Due <= end && (actor.Admin || x.Teacher == actor.Id ||
                     (actor.Manager && people.Groups.Any(g => g.Id == x.Group && people.InScope(g.Unit, actor.Units)))) &&
                     (group is null || x.Group == group) && (course is null || x.Course == course) &&
-                    (unit is null || (x.Group is Guid id && people.GroupAt(id, x.Due) is { } target && people.InScope(target.Unit, [unit.Value])))))
+                    (unit is null || (x.Group is Guid id && people.GroupAt(id, x.Due) is { } target && people.InScope(target.Unit, [unit.Value], x.Due)))))
                     rows.Add([Rules.Iso(task.Due), Teacher(task.Teacher), "تكليف", task.Title, task.State switch
                     { "approved" => "معتمد", "submitted" => "مسلّم", "returned" => "للاستكمال", _ => task.Due < end ? "متأخر" : "مفتوح" }, "—"]);
             }

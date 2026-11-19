@@ -1790,3 +1790,27 @@ dialog::backdrop {
   display: block;
   color: var(--muted);
 }
+.password-panel {
+  max-width: 560px;
+}
+.catalog-stack {
+  display: grid;
+  gap: 10px;
+}
+.catalog-editor-row {
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 10px;
+}
+.catalog-editor-row summary {
+  cursor: pointer;
+  font-weight: 650;
+  padding: 4px;
+}
+.catalog-editor-row .form-grid {
+  margin-top: 10px;
+}
+.curriculum-chapters {
+  margin: 0 0 12px;
+  padding-inline-start: 22px;
+}

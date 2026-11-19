@@ -12,6 +12,7 @@ public static class Identity
     public static readonly Guid DemoAdmin = Guid.Parse("a62ab256-e646-4458-b21e-14132a0492dd");
     public static readonly Guid DemoTeacher = Guid.Parse("79ba9bb4-6618-49b5-ae9e-bdc87e2eda0c");
     public static readonly Guid DemoSecondTeacher = Guid.Parse("d5ce01f6-87dd-4723-a634-81dd3a805a6d");
+    public const string DemoMap = "https://share.google/9aJWp46FtxrBkJsDT";
     private static readonly PasswordHasher<string> Hasher = new();
     public static string Token() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -20,6 +21,13 @@ public static class Identity
         Rules.Require(value.Length is >= 12 and <= 128, "استخدم كلمة مرور من ١٢ إلى ١٢٨ حرفًا.");
         return Hasher.HashPassword("", value);
     }
+    public static bool CheckPassword(Account account, string value) =>
+        value.Length <= 128 && Hasher.VerifyHashedPassword("", account.Password, value) != PasswordVerificationResult.Failed;
+    public static void WriteCookie(HttpContext context, IConfiguration config, string token) =>
+        context.Response.Cookies.Append("center_session", token, new CookieOptions
+        {
+            HttpOnly = true, Secure = !config.GetValue<bool>("CENTER_ALLOW_HTTP"), SameSite = SameSiteMode.Strict, Path = "/", MaxAge = TimeSpan.FromHours(12)
+        });
     public static async Task Initialize(State store, IConfiguration config)
     {
         if (!store.Local(Module.Identity)) return;
@@ -28,21 +36,28 @@ public static class Identity
         var password = config["CENTER_PLATFORM_PASSWORD"];
         await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
         {
+            data.Catalog ??= Catalog.Seed();
             if (!data.Accounts.Any(x => x.Platform))
             {
                 if (demo) data.Accounts.Add(new(Guid.NewGuid(), "إدارة المنصة", "platform@demo.local", Password("Demo-Platform-2026!"), true));
                 else if (!string.IsNullOrWhiteSpace(email) && !string.IsNullOrEmpty(password))
-                    data.Accounts.Add(new(Guid.NewGuid(), "إدارة المنصة", Rules.OriginalEmail(email), Password(password), true));
+                    data.Accounts.Add(new(Guid.NewGuid(), "إدارة المنصة", Rules.OriginalEmail(email), Password(password), Platform: true, MustChangePassword: true));
             }
             if (demo && !data.Centers.Any(x => x.Id == DemoCenter))
             {
-                data.Centers.Add(new(DemoCenter, "مركز نداء الخير القرآني", "Asia/Amman"));
+                data.Centers.Add(new(DemoCenter, "مركز نداء الخير القرآني", "Asia/Amman", MapUrl: DemoMap));
                 data.Accounts.Add(new(DemoAdmin, "أحمد الخطيب", "admin@demo.local", Password("Demo-Admin-2026!")));
                 data.Accounts.Add(new(DemoTeacher, "محمد العلي", "teacher@demo.local", Password("Demo-Teacher-2026!")));
                 data.Accounts.Add(new(DemoSecondTeacher, "عمر الحسن", "omar@demo.local", Password("Demo-Omar-2026!")));
                 data.Memberships.Add(new(DemoAdmin, DemoCenter, ["admin"], []));
                 data.Memberships.Add(new(DemoTeacher, DemoCenter, ["teacher"], []));
                 data.Memberships.Add(new(DemoSecondTeacher, DemoCenter, ["teacher"], []));
+            }
+            if (demo && !data.DemoMapInitialized)
+            {
+                if (data.Centers.Find(x => x.Id == DemoCenter) is { MapUrl: null } nada)
+                    data.Centers.Upsert(x => x.Id == DemoCenter, nada with { MapUrl = DemoMap });
+                data.DemoMapInitialized = true;
             }
             return true;
         });
@@ -61,9 +76,9 @@ public static class Identity
         Rules.Require(account is not null, "انتهت الجلسة. سجّل الدخول من جديد.", 401);
         return (account!, data);
     }
-    public static async Task<(Actor Actor, CenterInfo Center)> Context(State store, HttpContext context, Guid center)
+    public static async Task<(Actor Actor, CenterInfo Center)> Context(State store, HttpContext context, Guid center, bool configuration = false)
     {
-        var request = new Lookup(center, SessionToken(context));
+        var request = new Lookup(center, SessionToken(context), configuration);
         var result = store.Local(Module.Identity) ? await Resolve(store, request) :
             await store.Send<CenterAccess>(Module.Identity, "/internal/access", request);
         return (result.Actor, result.Center);
@@ -73,8 +88,13 @@ public static class Identity
         var (account, data) = await Current(store, input.Token);
         var membership = data.Memberships.Find(x => x.Account == account.Id && x.Center == input.Center && x.Active);
         var info = data.Centers.Find(x => x.Id == input.Center && x.Active);
+        RequireReady(store, account, data, input.Token);
+        if (input.Configuration)
+        {
+            Rules.Require(account.Platform && info != null, "تعديل إعدادات المركز من صلاحيات مدير المنصة.", 403);
+            return new(new(account.Id, account.Name, true, input.Center, ["admin"], []), info!);
+        }
         Rules.Require(membership is not null && info is not null, "ليس لديك صلاحية في هذا المركز.", 403);
-        RequireStepUp(store, account, data, input.Token);
         return new(new(account.Id, account.Name, account.Platform, input.Center, membership!.Roles, membership.Units), info!);
     }
     public static bool RequiresMfa(State store, Account account, IdentityData data) =>
@@ -82,14 +102,22 @@ public static class Identity
             && data.Centers.Any(c => c.Id == x.Center && c.Active)));
     public static bool IsVerified(IdentityData data, string token) =>
         data.Sessions.Any(x => x.Hash == Hash(token) && x.Expires > DateTimeOffset.UtcNow && x.Verified);
-    private static void RequireStepUp(State store, Account account, IdentityData data, string token) =>
+    private static void RequireReady(State store, Account account, IdentityData data, string token)
+    {
+        Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
         Rules.Require(!RequiresMfa(store, account, data) || IsVerified(data, token), "أكمل التحقق بمفتاح المرور.", 403);
-    public record Lookup(Guid Center, string Token);
+    }
+    public static async Task AccountReady(State store, HttpContext http)
+    {
+        var (account, data) = await Current(store, http);
+        RequireReady(store, account, data, SessionToken(http));
+    }
+    public record Lookup(Guid Center, string Token, bool Configuration = false);
     public record CenterAccess(Actor Actor, CenterInfo Center);
     public static async Task<Actor> PlatformActor(State store, HttpContext context)
     {
         var (account, data) = await Current(store, context);
-        RequireStepUp(store, account, data, SessionToken(context));
+        RequireReady(store, account, data, SessionToken(context));
         Rules.Require(account.Platform, "هذه العملية متاحة لإدارة المنصة.", 403);
         return new(account.Id, account.Name, true, Guid.Empty, [], []);
     }
@@ -101,6 +129,8 @@ public static class Identity
         app.MapPost("/internal/access", (Lookup input, State store) => Resolve(store, input));
         app.MapPost("/internal/staff", (StaffLookup input, State store) => Staff(store, input.Center));
         var g = app.MapGroup("/api/auth");
+        Passwords.Map(g);
+        Catalog.Map(app);
         g.MapGet("/info", (IConfiguration config) => new { demo = config.GetValue<bool>("CENTER_DEMO") });
         g.MapPost("/login", async (Login input, HttpContext context, State store, IConfiguration config) =>
         {
@@ -109,16 +139,13 @@ public static class Identity
             await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
             {
                 var a = data.Accounts.Find(x => x.Active && x.Email == email);
-                Rules.Require(a != null && input.Password.Length <= 128 && Hasher.VerifyHashedPassword("", a.Password, input.Password) != PasswordVerificationResult.Failed,
+                Rules.Require(a != null && (a.TemporaryUntil is null || a.TemporaryUntil > DateTimeOffset.UtcNow) && CheckPassword(a, input.Password),
                     "البريد أو كلمة المرور غير صحيحة.", 401);
                 data.Sessions.RemoveAll(x => x.Expires <= DateTimeOffset.UtcNow);
-                data.Sessions.Add(new(Hash(token), a!.Id, DateTimeOffset.UtcNow.AddHours(12)));
+                data.Sessions.Add(new(Hash(token), a!.Id, DateTimeOffset.UtcNow.AddMinutes(a.MustChangePassword ? 20 : 720)));
                 return true;
             });
-            context.Response.Cookies.Append("center_session", token, new CookieOptions
-            {
-                HttpOnly = true, Secure = !config.GetValue<bool>("CENTER_ALLOW_HTTP"), SameSite = SameSiteMode.Strict, Path = "/", MaxAge = TimeSpan.FromHours(12)
-            });
+            WriteCookie(context, config, token);
             return Results.Ok(new { ok = true });
         }).RequireRateLimiting("public");
         g.MapGet("/me", async (HttpContext context, State store) =>
@@ -126,13 +153,13 @@ public static class Identity
             var (account, data) = await Current(store, context);
             return new
             {
-                account.Id, account.Name, account.Email, account.Platform,
+                account.Id, account.Name, account.Email, account.Platform, account.MustChangePassword,
                 requiresMfa = RequiresMfa(store, account, data) && !IsVerified(data, SessionToken(context)),
                 hasPasskey = data.Credentials.Any(x => x.Account == account.Id),
                 centers = from m in data.Memberships
                           join c in data.Centers on m.Center equals c.Id
                           where m.Account == account.Id && m.Active && c.Active
-                          select new { c.Id, c.Name, c.TimeZone, c.Logo, m.Roles, m.Units }
+                          select new { c.Id, c.Name, c.TimeZone, c.Logo, c.MapUrl, m.Roles, m.Units }
             };
         });
         g.MapPost("/logout", async (HttpContext context, State store) =>
@@ -171,12 +198,14 @@ public static class Identity
                 if (request.State != "pending") return new { request };
                 var reason = input.Approve ? null : Rules.Required(input.Reason, 500);
                 var center = input.Approve ? new CenterInfo(Guid.NewGuid(), request.Name, "Asia/Amman") : null;
-                var token = center is null ? null : AddInvite(data, request.Contact, request.Email, center.Id, ["admin"], []);
+                var credentials = center != null && input.Temporary
+                    ? Passwords.Issue(data, request.Contact, request.Email, center.Id, ["admin"], []) : null;
+                var token = center is null ? null : input.Temporary ? credentials?.Token : AddInvite(data, request.Contact, request.Email, center.Id, ["admin"], []);
                 if (center is not null) data.Centers.Add(center);
                 request = request with { State = input.Approve ? "approved" : "rejected", Center = center?.Id, Reason = reason };
                 data.Requests.Upsert(x => x.Id == id, request);
                 data.Audit.Log(actor, "request." + request.State, id, reason);
-                return new { request, token };
+                return new { request, token, credentials };
             });
         });
         g.MapPut("/centers/{center:guid}/active", async (Guid center, Active input, HttpContext context, State store) =>
@@ -221,26 +250,54 @@ public static class Identity
             await Context(store, context, center);
             return await Staff(store, center);
         });
+        c.MapGet("/staff/configuration", async (Guid center, State store, HttpContext context) =>
+        {
+            await Context(store, context, center, configuration: true);
+            return await Staff(store, center);
+        });
         c.MapPost("/staff/invite", async (Guid center, StaffInvite input, State store, HttpContext context) =>
         {
-            var (actor, _) = await Context(store, context, center);
-            actor.Admin();
+            var (actor, _) = await Context(store, context, center, configuration: true);
             ValidateRoles(input.Roles);
             var people = await store.Read<PeopleData>(Module.People, center);
             Rules.Require(input.Units.All(id => people.Units.Any(u => u.Id == id && u.Active)), "اختر وحدات المركز الصحيحة.");
-            return await store.Change<IdentityData, object>(Module.Identity, Guid.Empty, data =>
+            return await store.Change<IdentityData, Passwords.Provisioned>(Module.Identity, Guid.Empty, data =>
             {
                 var email = Rules.OriginalEmail(input.Email);
                 Rules.Require(!data.Memberships.Any(m => m.Center == center && m.Active && data.Accounts.Any(a => a.Id == m.Account && a.Email == email)), "الموظف مسجّل في المركز.");
-                var token = AddInvite(data, Rules.Required(input.Name), email, center, input.Roles, input.Units);
-                data.Audit.Log(actor, "staff.invite", center);
-                return new { token };
+                var result = Passwords.Issue(data, Rules.Required(input.Name), email, center, input.Roles, input.Units);
+                data.Audit.Log(actor, "staff.provision", center);
+                return result;
             });
+        });
+        c.MapPost("/staff/{id:guid}/temporary", async (Guid center, Guid id, State store, HttpContext context) =>
+        {
+            var (actor, _) = await Context(store, context, center, configuration: true);
+            return await store.Change<IdentityData, Passwords.Provisioned>(Module.Identity, Guid.Empty, data =>
+            {
+                var result = Passwords.Reissue(data, center, id);
+                data.Audit.Log(actor, "staff.password.temporary", id);
+                return result;
+            });
+        });
+        c.MapDelete("/staff/{id:guid}/passkeys", async (Guid center, Guid id, State store, HttpContext context) =>
+        {
+            var (actor, _) = await Context(store, context, center, configuration: true);
+            await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
+            {
+                Rules.Require(data.Accounts.Any(x => x.Id == id && !x.Platform) &&
+                    data.Memberships.Any(x => x.Account == id && x.Center == center && x.Active), "الحساب خارج المركز.", 403);
+                data.Credentials.RemoveAll(x => x.Account == id);
+                data.Challenges.RemoveAll(x => x.Account == id);
+                data.Sessions.RemoveAll(x => x.Account == id);
+                data.Audit.Log(actor, "staff.passkeys.revoke", id);
+                return true;
+            });
+            return Results.NoContent();
         });
         c.MapPut("/staff/{id:guid}", async (Guid center, Guid id, StaffEdit input, State store, HttpContext context) =>
         {
-            var (actor, _) = await Context(store, context, center);
-            actor.Admin();
+            var (actor, _) = await Context(store, context, center, configuration: true);
             ValidateRoles(input.Roles);
             Rules.Require(id != actor.Id, "يتولى مدير آخر تعديل عضويتك.");
             var people = await store.Read<PeopleData>(Module.People, center);
@@ -248,6 +305,8 @@ public static class Identity
             return await store.Change<IdentityData, Membership>(Module.Identity, Guid.Empty, data =>
             {
                 var entry = Rules.Found(data.Memberships.Find(x => x.Account == id && x.Center == center));
+                var account = Rules.Found(data.Accounts.Find(x => x.Id == id));
+                if (input.Name != null) data.Accounts.Upsert(x => x.Id == id, account with { Name = Rules.Required(input.Name) });
                 var updated = entry with { Roles = input.Roles, Units = input.Units, Active = input.Active };
                 data.Memberships.Upsert(x => x == entry, updated);
                 data.Audit.Log(actor, "staff.update", id);
@@ -256,22 +315,30 @@ public static class Identity
         });
         c.MapPut("/profile", async (Guid center, CenterEdit input, State store, HttpContext context) =>
         {
-            var (actor, info) = await Context(store, context, center);
-            actor.Admin();
+            var (actor, info) = await Context(store, context, center, configuration: true);
             var zone = Rules.Required(input.TimeZone);
             TimeZoneInfo.FindSystemTimeZoneById(zone);
             return await store.Change<IdentityData, CenterInfo>(Module.Identity, Guid.Empty, data =>
             {
-                var updated = info with { Name = Rules.Required(input.Name), TimeZone = zone, Logo = input.Logo is null ? info.Logo : ValidateLogo(input.Logo) };
+                var updated = info with { Name = Rules.Required(input.Name), TimeZone = zone, Logo = input.Logo is null ? info.Logo : ValidateLogo(input.Logo),
+                    MapUrl = input.MapUrl is null ? info.MapUrl : ValidateMap(input.MapUrl) };
                 data.Centers.Upsert(x => x.Id == center, updated);
                 data.Audit.Log(actor, "center.profile", center);
                 return updated;
             });
         });
     }
+    private static string? ValidateMap(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var link = Rules.Required(value, 2048);
+        Rules.Require(Uri.TryCreate(link, UriKind.Absolute, out var url) && url.Scheme == "https" &&
+            string.IsNullOrEmpty(url.UserInfo), "أدخل رابط موقع HTTPS صالحًا.");
+        return link;
+    }
     private static string? ValidateLogo(string value)
     {
-        if (value.Length == 0) return null;
+        if (value.Length == 0) return "";
         var parts = value.Split(',', 2);
         Rules.Require(parts.Length == 2 && parts[0] is "data:image/png;base64" or "data:image/jpeg;base64" && parts[1].Length <= 400_000,
             "ارفع شعار PNG أو JPEG بحجم لا يتجاوز ٣٠٠ كيلوبايت.");
@@ -281,7 +348,7 @@ public static class Identity
             : bytes.AsSpan().StartsWith(new byte[] { 255, 216, 255 }), "ملف الشعار غير صالح.");
         return value;
     }
-    private static string AddInvite(IdentityData data, string name, string email, Guid center, string[] roles, Guid[] units)
+    public static string AddInvite(IdentityData data, string name, string email, Guid center, string[] roles, Guid[] units)
     {
         var token = Token();
         data.Invites.RemoveAll(x => x.Center == center && x.Email == email);
@@ -302,10 +369,10 @@ public static class Identity
     public record StaffView(Guid Id, string Name, string[] Roles, Guid[] Units, bool Active);
     public record Login(string Email, string Password);
     public record Apply(string Name, string Contact, string Email);
-    public record Decision(bool Approve, string? Reason);
+    public record Decision(bool Approve, string? Reason, bool Temporary = false);
     public record Active(bool Value);
     public record Activation(string Token, string Password);
     public record StaffInvite(string Name, string Email, string[] Roles, Guid[] Units);
-    public record StaffEdit(string[] Roles, Guid[] Units, bool Active);
-    public record CenterEdit(string Name, string TimeZone, string? Logo);
+    public record StaffEdit(string[] Roles, Guid[] Units, bool Active, string? Name);
+    public record CenterEdit(string Name, string TimeZone, string? Logo, string? MapUrl);
 }

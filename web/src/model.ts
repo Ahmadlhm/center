@@ -1,3 +1,4 @@
+import type { Catalog } from "./quran";
 export type Key = string;
 export type Unit = {
   id: Key;
@@ -46,6 +47,7 @@ export type Rule = {
   longitude: number | null;
   radius: number;
   accuracy: number;
+  allowAttendanceReview: boolean;
 };
 export type People = {
   units: Unit[];
@@ -92,10 +94,6 @@ export type MeetingType = {
   lesson: boolean;
   practice: boolean;
 };
-export const tajweedTypes: MeetingType[] = [
-  { key: "theory", name: "نظري", lesson: true, practice: false },
-  { key: "tajweed-practical", name: "عملي", lesson: true, practice: false },
-];
 export const courseRoute = (course: Pick<Course, "id" | "type">) =>
   (course.type === "recitation" ? "recitation-course/" : "course/") + course.id;
 export type CourseTeacherRequest = {
@@ -195,6 +193,7 @@ export type Center = {
   name: string;
   timeZone: string;
   logo?: string | null;
+  mapUrl?: string | null;
   roles: string[];
   units: Key[];
 };
@@ -204,6 +203,7 @@ export type Session = {
   email: string;
   platform: boolean;
   requiresMfa: boolean;
+  mustChangePassword: boolean;
   hasPasskey: boolean;
   centers: Center[];
 };
@@ -221,6 +221,7 @@ export type Certificate = {
 export type Context = {
   center: Center;
   user: Session;
+  catalog: Catalog;
   people: People;
   education: Education;
   work: Work;

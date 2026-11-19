@@ -8,7 +8,6 @@ import {
   groupOf,
   message,
   studentOf,
-  tajweedTypes,
   type Group,
   type Context,
   type Certificate,
@@ -54,7 +53,9 @@ export function MeetingForm({
         (!teachers || teachers.includes(x.id)),
     ),
   );
-  const meetingTypes = recitation ? tajweedTypes : c.education.settings.types;
+  const meetingTypes = recitation
+    ? c.catalog.tajweedTypes
+    : c.education.settings.types;
   const [kind, setKind] = useState(meetingTypes[0]?.key ?? "");
   const withMemorization = meetingTypes.some(
     (x) => x.key === kind && x.practice,

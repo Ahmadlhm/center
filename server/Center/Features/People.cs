@@ -25,19 +25,33 @@ public static class People
             var units = actor.Admin ? data.Units : data.Units.Where(x => groups.Any(group => data.InScope(group.Unit, [x.Id])) || data.InScope(x.Id, actor.Units)).ToList();
             return new { groups, enrollments, students, units, data.Periods, rules = actor.Admin ? data.Rules : [], rule = data.At(today), data.Policies, today };
         });
+        g.MapGet("/configuration", async (Guid center, State store, HttpContext http) =>
+        {
+            var (_, info) = await Identity.Context(store, http, center, configuration: true);
+            var data = await store.Read<PeopleData>(Module.People, center);
+            var today = Rules.Today(info.TimeZone);
+            return new { data.Units, data.Groups, data.Periods, data.Rules, rule = data.At(today), data.Policies, today };
+        });
         g.MapPut("/units/{id:guid}", async (Guid center, Guid id, UnitInput input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
+            var (actor, info) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             return await store.Change<PeopleData, Unit>(Module.People, center, data =>
             {
                 var existing = data.Units.Find(x => x.Id == id);
                 Rules.Require(input.Parent is null || (input.Parent != id && data.Units.Any(x => x.Id == input.Parent && x.Active) && !data.InScope(input.Parent, [id])),
                     "اختر وحدة أصل صالحة.");
-                Rules.Require(existing is null || existing.Parent == input.Parent, "أنشئ وحدة جديدة وانقل الشعب إليها لتبقى التقارير السابقة صحيحة.");
+
                 Rules.Require(input.Active || (!data.Units.Any(x => x.Parent == id && x.Active) && !data.Groups.Any(x => x.Unit == id && x.End == null)),
                     "انقل الشعب والوحدات التابعة قبل الأرشفة.");
                 var unit = new Unit(id, Rules.Required(input.Name), Rules.Required(input.Kind, 50), input.Parent, input.Active);
+                if (existing != null && existing.Parent != input.Parent)
+                {
+                    if (!data.UnitPlacements.Any(x => x.Unit == id))
+                        data.UnitPlacements.Add(new(id, existing.Parent, DateOnly.MinValue));
+                    var day = Rules.Today(info.TimeZone);
+                    data.UnitPlacements.Upsert(x => x.Unit == id && x.Effective == day, new(id, unit.Parent, day));
+                }
                 data.Units.Upsert(x => x.Id == id, unit);
                 data.Audit.Log(actor, "unit.save", id);
                 return unit;
@@ -45,7 +59,7 @@ public static class People
         });
         g.MapPut("/periods/{id:guid}", async (Guid center, Guid id, PeriodInput input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
+            var (actor, _) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             Rules.Require(input.End >= input.Start, "نهاية الفترة تسبق بدايتها.");
             return await store.Change<PeopleData, Period>(Module.People, center, data =>
@@ -58,7 +72,7 @@ public static class People
         });
         g.MapPut("/groups/{id:guid}", async (Guid center, Guid id, GroupInput input, State store, HttpContext http) =>
         {
-            var (actor, info) = await Identity.Context(store, http, center);
+            var (actor, info) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             Rules.Require(input.Days.Length != 0 && input.Days.All(Enum.IsDefined) && input.From < input.To && (input.End == null || input.End > input.Start),
                 "راجع تاريخ الشعبة وأيام الدوام وأوقاته.");
@@ -85,11 +99,14 @@ public static class People
             var (actor, info) = await Identity.Context(store, http, center);
             actor.Admin();
             Rules.Require(input.Birth is null || input.Birth <= Rules.Today(info.TimeZone), "تاريخ الميلاد في المستقبل.");
-            foreach (var span in input.Baseline ?? []) Rules.Verses(span);
+            var catalog = await Catalog.Read(store);
             return await store.Change<PeopleData, Student>(Module.People, center, data =>
             {
                 var number = Rules.Required(input.Number, 40);
                 Rules.Require(!data.Students.Any(x => x.Number == number && x.Id != id), "رقم الطالب مستخدم.");
+                var old = data.Students.Find(x => x.Id == id);
+                foreach (var span in input.Baseline ?? [])
+                    if (old == null || !old.Baseline.Contains(span)) catalog.Validate(span);
                 var student = new Student(id, number, Rules.Required(input.Name), input.Birth, input.Contact?.Trim() ?? "", input.Baseline ?? [], input.Estimated);
                 data.Students.Upsert(x => x.Id == id, student);
                 data.Audit.Log(actor, "student.save", id);
@@ -126,7 +143,7 @@ public static class People
         });
         g.MapPost("/rules", async (Guid center, Rule input, State store, HttpContext http) =>
         {
-            var (actor, info) = await Identity.Context(store, http, center);
+            var (actor, info) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             Rules.Require(input.Effective >= Rules.Today(info.TimeZone) && input.GroupLimit is >= 1 and <= 30 &&
                 input.CloseHours is >= 1 and <= 720 && input.OpenMinutes is >= 0 and <= 120 && input.LateMinutes is >= 0 and <= 720 &&
@@ -142,7 +159,7 @@ public static class People
         });
         g.MapPost("/policy", async (Guid center, Policy input, State store, HttpContext http) =>
         {
-            var (actor, _) = await Identity.Context(store, http, center);
+            var (actor, _) = await Identity.Context(store, http, center, configuration: true);
             actor.Admin();
             return await store.Change<PeopleData, Policy>(Module.People, center, data =>
             {

@@ -28,6 +28,11 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(config["CENTER_DB"] ?
     "Host=127.0.0.1;Port=55432;Database=center;Username=center_local"));
 builder.Services.AddHttpClient("internal", c => c.Timeout = TimeSpan.FromSeconds(120)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
 builder.Services.AddSingleton<State>();
+if (mode is "identity" or "all")
+{
+    builder.Services.AddSingleton<PasswordMail>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<PasswordMail>());
+}
 if (mode is "education" or "all") builder.Services.AddHostedService<MeetingPlanner>();
 builder.Services.AddSingleton<IFido2>(_ => new Fido2(new Fido2Configuration
 {

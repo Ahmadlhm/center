@@ -12,4 +12,7 @@
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="QuestPDF" Version="2025.12.3" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Data/catalog.json" />
+  </ItemGroup>
 </Project>

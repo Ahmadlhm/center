@@ -1,3 +1,4 @@
+import { levelName, type Curriculum } from "./quran";
 import { useEffect, useState } from "react";
 import {
   BookOpen,
@@ -135,7 +136,9 @@ export function Courses({
                 </span>
                 <Badge value={r.status} />
               </div>
-              <div className="eyebrow">{r.level ?? typeLabel(r.type)}</div>
+              <div className="eyebrow">
+                {levelName(c.catalog, r.level) ?? typeLabel(r.type)}
+              </div>
               <h2>
                 <a href={"#" + courseRoute(r)}>{r.name}</a>
               </h2>
@@ -330,10 +333,15 @@ function CourseForm({
         {type === "recitation" && (
           <Field label="مستوى التلاوة">
             <Select
-              options={c.education.settings.levels.map((x) => ({
-                value: x,
-                name: x,
-              }))}
+              options={c.education.settings.levels
+                .filter(
+                  (x) =>
+                    x === course?.level ||
+                    !c.catalog.levels.some(
+                      (level) => level.key === x && !level.active,
+                    ),
+                )
+                .map((x) => ({ value: x, name: levelName(c.catalog, x) ?? x }))}
               value={level}
               onChange={setLevel}
             />
@@ -438,6 +446,8 @@ function CourseForm({
 type CourseData = {
   course: Course;
   teacherRequest: CourseTeacherRequest | null;
+  curriculum: Curriculum | null;
+  memorization: { student: string; juz: number[] }[];
   students: { id: string; name: string; number: string }[];
   meetings: Meeting[];
   grades: { student: string; state: string; date: string }[];
@@ -447,6 +457,7 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
   const [error, setError] = useState("");
   const [modal, setModal] = useState("");
   const [student, setStudent] = useState("");
+  const [choices, setChoices] = useState<string[]>([]);
   const reload = () =>
     api<CourseData>(f(c, "/education/courses/" + id))
       .then(setData)
@@ -463,6 +474,9 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
   const course = data.course;
   const recitation = course.type === "recitation";
   const request = data.teacherRequest;
+  const curriculum = data.curriculum;
+  const partName = (part: number) =>
+    c.catalog.juz.find((x) => x.number === part)?.name ?? String(part);
   const canTeach = admin(c) || course.teachers.includes(c.user.id);
   const canEdit = admin(c) || course.owner === c.user.id;
   return (
@@ -470,7 +484,9 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
       <PageHead
         title={course.name}
         desc={
-          (course.level ?? typeLabel(course.type)) +
+          (curriculum?.level ??
+            levelName(c.catalog, course.level) ??
+            typeLabel(course.type)) +
           " · " +
           course.teachers.map((x) => teacherOf(c, x)).join("، ")
         }
@@ -491,6 +507,33 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
         )}
       </PageHead>
       {error && <ErrorBox>{error}</ErrorBox>}
+      {curriculum && (
+        <section className="card">
+          <CardHead title="مقرر دورة التلاوة" desc={curriculum.book} />
+          <div className="panel">
+            <ol className="curriculum-chapters">
+              {curriculum.chapters.map((x) => (
+                <li key={x.number} value={x.number}>
+                  {x.title}
+                </li>
+              ))}
+            </ol>
+            <h3>مقرر الحفظ</h3>
+            {curriculum.requiredJuz.length > 0 && (
+              <p>{curriculum.requiredJuz.map(partName).join("، ")}</p>
+            )}
+            {curriculum.chooseJuz > 0 && (
+              <p>
+                يختار الطالب {curriculum.chooseJuz} أجزاء مختلفة
+                {curriculum.excludedJuz.length
+                  ? " من غير: " +
+                    curriculum.excludedJuz.map(partName).join("، ")
+                  : "."}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
       {request && (
         <section className="card">
           <CardHead
@@ -536,7 +579,7 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
                 <td dir="ltr">
                   {clock(m.from)} – {clock(m.to)}
                 </td>
-                {recitation && <td>{m.kind === "theory" ? "نظري" : "عملي"}</td>}
+                {recitation && <td>{(c.catalog.tajweedTypes.find(x => x.key === m.kind) ?? c.catalog.tajweedTypes.find(x => x.key === "tajweed-practical"))?.name ?? m.kind}</td>}
                 <td>
                   <Badge value={m.state} />
                 </td>
@@ -559,7 +602,15 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
           desc={fmt(data.students.length) + " طالبًا في الدورة"}
         />
         {data.students.length ? (
-          <Table headers={["الطالب", "حضر", "النتيجة", ""]}>
+          <Table
+            headers={[
+              "الطالب",
+              "حضر",
+              "النتيجة",
+              ...(curriculum?.chooseJuz ? ["مقرر الحفظ"] : []),
+              "",
+            ]}
+          >
             {data.students.map((s) => {
               const grade = data.grades.find((x) => x.student === s.id);
               return (
@@ -587,7 +638,31 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
                   <td>
                     <Badge value={grade?.state ?? "registered"} />
                   </td>
+                  {!!curriculum?.chooseJuz && (
+                    <td>
+                      {data.memorization
+                        .find((x) => x.student === s.id)
+                        ?.juz.map(partName)
+                        .join("، ") || "بانتظار الاختيار"}
+                    </td>
+                  )}
                   <td>
+                    {!!curriculum?.chooseJuz && canTeach && (
+                      <Button
+                        kind="outline"
+                        onClick={() => {
+                          setStudent(s.id);
+                          setChoices(
+                            data.memorization
+                              .find((x) => x.student === s.id)
+                              ?.juz.map(String) ?? [],
+                          );
+                          setModal("memorization");
+                        }}
+                      >
+                        تسجيل الأجزاء
+                      </Button>
+                    )}
                     {canTeach && (
                       <Button
                         kind="outline"
@@ -654,6 +729,41 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
           )}
         </Dialog>
       )}
+      {modal === "memorization" && curriculum && (
+        <Dialog
+          title="اختيار أجزاء الحفظ"
+          close={() => setModal("")}
+          submit={async () => {
+            await api(
+              f(
+                c,
+                "/education/courses/" +
+                  course.id +
+                  "/students/" +
+                  student +
+                  "/memorization",
+              ),
+              "PUT",
+              { juz: choices.map(Number) },
+            );
+            await reload();
+            c.notify("حُفظ اختيار الأجزاء");
+          }}
+        >
+          <p>اختر {curriculum.chooseJuz} أجزاء مختلفة.</p>
+          <Checks
+            value={choices}
+            onChange={setChoices}
+            options={c.catalog.juz
+              .filter(
+                (x) =>
+                  !curriculum.excludedJuz.includes(x.number) &&
+                  !curriculum.requiredJuz.includes(x.number),
+              )
+              .map((x) => ({ value: String(x.number), name: x.name }))}
+          />
+        </Dialog>
+      )}
       {modal === "grade" && (
         <Dialog
           title="نتيجة الطالب في الدورة"
@@ -693,7 +803,13 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
     </>
   );
 }
-export function Contests({ c }: { c: Context }) {
+export function Contests({
+  c,
+  configuration = false,
+}: {
+  c: Context;
+  configuration?: boolean;
+}) {
   const [id, setId] = useState(c.education.competitions[0]?.id ?? "");
   const [form, setForm] = useState("");
   const [student, setStudent] = useState("");
@@ -706,7 +822,9 @@ export function Contests({ c }: { c: Context }) {
         title="المسابقة السنوية"
         desc="الفئات والمشاركون ونتائج المسابقات القرآنية."
       >
-        {admin(c) && <Add onClick={() => setForm("new")}>إضافة مسابقة</Add>}
+        {configuration && (
+          <Add onClick={() => setForm("new")}>إضافة مسابقة</Add>
+        )}
       </PageHead>
       {contest ? (
         <>
@@ -751,18 +869,22 @@ export function Contests({ c }: { c: Context }) {
             >
               {admin(c) && (
                 <div className="actions">
-                  <Button kind="outline" onClick={() => setForm("edit")}>
-                    تعديل المسابقة
-                  </Button>
-                  <Add
-                    onClick={() => {
-                      setStudent("");
-                      setCategory("");
-                      setForm("entry");
-                    }}
-                  >
-                    إضافة مشاركة
-                  </Add>
+                  {configuration && (
+                    <Button kind="outline" onClick={() => setForm("edit")}>
+                      تعديل المسابقة
+                    </Button>
+                  )}
+                  {!configuration && (
+                    <Add
+                      onClick={() => {
+                        setStudent("");
+                        setCategory("");
+                        setForm("entry");
+                      }}
+                    >
+                      إضافة مشاركة
+                    </Add>
+                  )}
                 </div>
               )}
             </CardHead>
@@ -780,7 +902,7 @@ export function Contests({ c }: { c: Context }) {
                     <td>{x.score ?? "—"}</td>
                     <td>{x.rank ?? "—"}</td>
                     <td>
-                      {admin(c) && (
+                      {admin(c) && !configuration && (
                         <Button
                           kind="outline"
                           onClick={() => {
@@ -903,7 +1025,10 @@ function ContestForm({
     maxAge: null,
   });
   const [rows, setRows] = useState<Category[]>(
-    contest?.categories ?? [fresh()],
+    contest?.categories ??
+      (c.catalog.contestLevels.length
+        ? c.catalog.contestLevels.map((x) => ({ ...x, id: uid(), unit: null }))
+        : [fresh()]),
   );
   const set = (id: string, patch: Partial<Category>) =>
     setRows(rows.map((x) => (x.id === id ? { ...x, ...patch } : x)));

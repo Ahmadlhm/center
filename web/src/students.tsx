@@ -1,4 +1,4 @@
-import { surahs } from "./quran";
+import { SpanInputs, SpanPicker } from "./span-picker";
 import { useEffect, useState } from "react";
 import {
   BookOpen,
@@ -43,7 +43,7 @@ import {
   options,
   val,
 } from "./ui";
-import { admin, editGroup, f, SpanInputs, Summary } from "./learning";
+import { admin, editGroup, f, Summary } from "./learning";
 import { Documents } from "./records";
 export function Students({ c }: { c: Context }) {
   const [query, setQuery] = useState("");
@@ -223,6 +223,7 @@ function StudentForm({
       {baseline.map((span, i) => (
         <div className="reading-row" key={i}>
           <SpanInputs
+            catalog={c.catalog}
             value={span}
             onChange={(value) =>
               setBaseline(baseline.map((x, j) => (i === j ? value : x)))
@@ -238,13 +239,10 @@ function StudentForm({
           </button>
         </div>
       ))}
-      <Button
-        kind="outline"
-        onClick={() => setBaseline([...baseline, { surah: 1, from: 1, to: 7 }])}
-      >
-        <Plus size={16} />
-        مقطع جديد
-      </Button>
+      <SpanPicker
+        catalog={c.catalog}
+        add={(ranges) => setBaseline((current) => [...current, ...ranges])}
+      />
     </Dialog>
   );
 }
@@ -394,7 +392,9 @@ export function StudentDetail({ c, id }: { c: Context; id: string }) {
                     {r.mark.readings
                       .map(
                         (x) =>
-                          surahs[x.span.surah - 1] +
+                          (c.catalog.surahs.find(
+                            (s) => s.number === x.span.surah,
+                          )?.name ?? String(x.span.surah)) +
                           " " +
                           x.span.from +
                           "–" +
