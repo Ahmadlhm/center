@@ -702,8 +702,8 @@ export function StaffPage({ c }: { c: Context }) {
   return (
     <>
       <PageHead
-        title="الموظفون"
-        desc="دعوات الموظفين والأدوار والصلاحيات التنظيمية."
+        title="حسابات الموظفين"
+        desc="إضافة حسابات للمدير والمعلّمين وتحديد صلاحياتهم."
       >
         <Button
           onClick={() => {
@@ -714,7 +714,7 @@ export function StaffPage({ c }: { c: Context }) {
           }}
         >
           <UserPlus size={17} />
-          دعوة موظف
+          إضافة حساب
         </Button>
       </PageHead>
       <div className="card">
@@ -764,7 +764,7 @@ export function StaffPage({ c }: { c: Context }) {
       </div>
       {invite && (
         <Dialog
-          title={activeStaff ? "صلاحيات " + activeStaff.name : "دعوة موظف"}
+          title={activeStaff ? "صلاحيات " + activeStaff.name : "إضافة حساب موظف"}
           close={() => setInvite(false)}
           submit={async (form) => {
             if (activeStaff) {

@@ -22,13 +22,16 @@ export function CenterConfiguration({
   user,
   catalog,
   reload,
+  tab,
+  onTab,
 }: {
   center: Center;
   user: Session;
   catalog: Catalog;
   reload: () => Promise<void>;
+  tab: string;
+  onTab: (tab: string) => void;
 }) {
-  const [tab, setTab] = useState("settings");
   const [data, setData] =
     useState<Pick<Context, "people" | "education" | "staff">>();
   const [error, setError] = useState("");
@@ -85,7 +88,7 @@ export function CenterConfiguration({
     <>
       <Tabs
         value={tab}
-        onChange={setTab}
+        onChange={onTab}
         items={[
           { value: "settings", name: "الهيكل والموقع" },
           { value: "groups", name: "الشعب" },
