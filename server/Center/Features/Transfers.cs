@@ -256,29 +256,35 @@ public static class Transfers
             else
             {
                 title = "الحضور وإنجاز الحفظ";
-                columns = ["الطالب", "حاضر", "غائب", "بعذر", "غير مرصود", "نسبة الحضور", "آيات جديدة", "مقاطع مراجعة"];
+                columns = ["الطالب", "حاضر", "غائب", "بعذر", "غير مرصود", "نسبة الحضور", "أجزاء أُكملت", "صفحات أُكملت", "مقاطع مراجعة"];
                 var allowed = filtered.SelectMany(m => m.Roster.Select(id => (m.Id, id))).ToHashSet();
                 var aggregate = new Dictionary<Guid, int[]>();
-                var seen = people.Students.ToDictionary(x => x.Id, x => x.Baseline.SelectMany(Rules.Verses).ToHashSet());
+                var seen = people.Students.ToDictionary(x => x.Id, x =>
+                {
+                    var progress = Catalog.Mushaf.Track();
+                    progress.Add(x.Baseline);
+                    return progress;
+                });
                 var recitationIds = education.Courses.Where(x => x.Type == "recitation").Select(x => x.Id).ToHashSet();
                 foreach (var m in education.Meetings.Where(x => x.Date <= end && x.State != "cancelled").OrderBy(x => x.Date).ThenBy(x => x.From).ThenBy(x => x.Id))
                     foreach (var mark in m.Marks)
                     {
-                        if (!seen.TryGetValue(mark.Student, out var verses)) continue;
+                        if (!seen.TryGetValue(mark.Student, out var progress)) continue;
                         var readings = m.Course is Guid courseId && recitationIds.Contains(courseId) ? [] : mark.Readings;
-                        var newCount = readings.Where(x => x.Kind == "new" && x.Result == "passed").SelectMany(x => Rules.Verses(x.Span)).Count(verses.Add);
+                        var completed = progress.Add(readings.Where(x => x.Kind == "new" && x.Result == "passed").Select(x => x.Span));
                         if (!allowed.Contains((m.Id, mark.Student))) continue;
                         if (!aggregate.TryGetValue(mark.Student, out var totals)) aggregate[mark.Student] = totals = new int[8];
                         var index = mark.Status switch { "present" => 0, "absent" => 1, "excused" => 2, _ => 3 };
                         totals[index]++;
                         var rule = people.Rules.Find(x => x.Version == m.RuleVersion) ?? people.At(m.Date);
                         if (index is 0 or 1 || (index == 2 && rule.CountExcused)) totals[4]++;
-                        totals[5] += newCount;
-                        totals[6] += readings.Count(x => x.Kind == "review");
+                        totals[5] += completed.Juz;
+                        totals[6] += completed.Pages;
+                        totals[7] += readings.Count(x => x.Kind == "review");
                     }
                 rows.AddRange(aggregate.OrderBy(x => Person(x.Key)).Select(x => new[] { Person(x.Key), x.Value[0].ToString(), x.Value[1].ToString(),
                     x.Value[2].ToString(), x.Value[3].ToString(), x.Value[4] == 0 ? "—" : $"{x.Value[0] * 100.0 / x.Value[4]:0.0}%",
-                    x.Value[5].ToString(), x.Value[6].ToString() }));
+                    x.Value[5].ToString(), x.Value[6].ToString(), x.Value[7].ToString() }));
             }
             var subtitle = $"{info.Name} | {(kind == "counts" ? Rules.Iso(end) : $"{Rules.Iso(start)} إلى {Rules.Iso(end)}")}";
             var notes = kind switch
@@ -287,7 +293,7 @@ public static class Transfers
                 "work" => "الدوام المسجّل يعبّر عن وقت الإثبات أو المراجعة.",
                 "courses" or "recitation" => "تُحسب نتائج الدورات في الفترة حسب تاريخ اعتماد النتيجة.",
                 "competitions" => "يحدد تاريخ المسابقة ظهور المشاركات في الفترة المختارة.",
-                _ => "معدل الحضور من الحالات المحسومة حسب قاعدة المركز السارية."
+                _ => "معدل الحضور حسب قاعدة المركز السارية. يُحسب اكتمال الجزء أو الصفحة مرة واحدة. عدد الصفحات يشمل صفحات الأجزاء المكتملة."
             };
             var updated = DateTimeOffset.UtcNow;
             if (format is "xlsx" or "pdf")

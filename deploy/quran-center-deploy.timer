@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Quran Center main for a new production release
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=25s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

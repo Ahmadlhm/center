@@ -72,22 +72,26 @@ public static class Education
             var today = Rules.Today(info.TimeZone);
             var full = People.FullStudent(actor, people, id, today);
             var records = data.Meetings.Where(x => x.State != "cancelled" && x.Marks.Any(mark => mark.Student == id))
-                .OrderBy(x => x.Date).ThenBy(x => x.From)
+                .OrderBy(x => x.Date).ThenBy(x => x.From).ThenBy(x => x.Id)
                 .Select(x =>
                 {
                     var mark = x.Marks.Single(mark => mark.Student == id);
                     return new { x.Id, x.Date, x.Group, x.Course, mark = IsRecitation(data, x) ? mark with { Readings = [], Practice = null } : mark };
                 }).ToArray();
-            var unique = student.Baseline.SelectMany(Rules.Verses).ToHashSet();
-            var baseline = unique.Count;
+            var memorization = Catalog.Mushaf.Track();
+            var baseline = memorization.Add(student.Baseline);
+            var visible = full ? null : data.Meetings.Where(m => Filter(actor, people, m, today).Roster.Contains(id)).Select(m => m.Id).ToHashSet();
+            var visibleMemorization = baseline;
             var progress = records.Select(r => new
             {
                 r.Id, r.Date, r.Group, r.Course, r.mark,
-                added = r.mark.Readings.Where(x => x is { Kind: "new", Result: "passed" }).SelectMany(x => Rules.Verses(x.Span)).Count(unique.Add)
-            }).Where(r => full || data.Meetings.Any(m => m.Id == r.Id && Filter(actor, people, m, today).Roster.Contains(id))).ToArray();
+                added = memorization.Add(r.mark.Readings.Where(x => x is { Kind: "new", Result: "passed" }).Select(x => x.Span))
+            }).Where(r => visible is null || visible.Contains(r.Id)).ToArray();
+            if (!full)
+                visibleMemorization = new(baseline.Juz + progress.Sum(x => x.added.Juz), baseline.Pages + progress.Sum(x => x.added.Pages));
             return new
             {
-                student, memorized = full ? unique.Count : baseline + progress.Sum(x => x.added), baseline, progress,
+                student, memorized = full ? memorization.Total : visibleMemorization, baseline, progress,
                 enrollments = people.Enrollments.Where(x => x.Student == id && (full || people.GroupAt(x.Group, x.Start) is { } group && people.InScope(group.Unit, actor.Units))).Select(x => new { x.Group, x.Start, x.End, name = people.Groups.Find(g => g.Id == x.Group)?.Name }),
                 grades = data.Grades.Where(x => x.Student == id && (full || data.Courses.Any(course => course.Id == x.Course && CanSeeCourse(actor, people, course)))).Select(x => new { x.Course, x.State, x.Date, name = data.Courses.Find(c => c.Id == x.Course)?.Name }),
                 followUps = data.FollowUps.Where(x => x.Student == id && (full || people.GroupAt(x.Group, x.Due) is { } group && people.InScope(group.Unit, actor.Units))),

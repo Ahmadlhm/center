@@ -1,3 +1,4 @@
+using System.Globalization;
 using Center.Domain;
 using Center.Infrastructure;
 
@@ -94,6 +95,13 @@ public static class People
                 return group;
             });
         });
+        g.MapGet("/students/next-number", async (Guid center, State store, HttpContext http) =>
+        {
+            var (actor, _) = await Identity.Context(store, http, center);
+            actor.Admin();
+            var data = await store.Read<PeopleData>(Module.People, center);
+            return new { number = NextNumber(data).ToString(CultureInfo.InvariantCulture) };
+        });
         g.MapPut("/students/{id:guid}", async (Guid center, Guid id, StudentInput input, State store, HttpContext http) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
@@ -102,12 +110,10 @@ public static class People
             var catalog = await Catalog.Read(store);
             return await store.Change<PeopleData, Student>(Module.People, center, data =>
             {
-                var number = Rules.Required(input.Number, 40);
-                Rules.Require(!data.Students.Any(x => x.Number == number && x.Id != id), "رقم الطالب مستخدم.");
                 var old = data.Students.Find(x => x.Id == id);
                 foreach (var span in input.Baseline ?? [])
                     if (old == null || !old.Baseline.Contains(span)) catalog.Validate(span);
-                var student = new Student(id, number, Rules.Required(input.Name), input.Birth, input.Contact?.Trim() ?? "", input.Baseline ?? [], input.Estimated);
+                var student = new Student(id, old?.Number ?? AllocateNumber(data), Rules.Required(input.Name), input.Birth, input.Contact?.Trim() ?? "", input.Baseline ?? [], input.Estimated);
                 data.Students.Upsert(x => x.Id == id, student);
                 data.Audit.Log(actor, "student.save", id);
                 return student;
@@ -118,24 +124,28 @@ public static class People
             var (actor, info) = await Identity.Context(store, http, center);
             actor.Admin();
             Rules.Require(input.Start >= Rules.Today(info.TimeZone), "استخدم تاريخ انتقال من اليوم فصاعدًا.");
+            Rules.Require(input.Group != input.CloseGroup, "اختر شعبتين مختلفتين للنقل، أو شعبة واحدة للتسجيل أو الإنهاء.");
             return await store.Change<PeopleData, object>(Module.People, center, data =>
             {
                 Rules.Found(data.Students.Find(x => x.Id == id));
                 if (input.CloseGroup is Guid old)
                 {
                     var current = Rules.Found(data.Enrollments.Find(x => x.Student == id && x.Group == old && x.Active(input.Start)));
-                    Rules.Require(current.Start < input.Start || input.Group != old, "اختر شعبة جديدة.");
                     data.Enrollments.Upsert(x => x == current, current with { End = input.Start });
                 }
                 if (input.Group is Guid next)
                 {
                     var group = Rules.Found(data.GroupAt(next, input.Start));
                     Rules.Require(group.Active(input.Start), "الشعبة غير نشطة في التاريخ المحدد.");
-                    if (data.Enrollments.Any(x => x.Student == id && x.Group == next && x.Active(input.Start))) return new { ok = true };
-                    var relevant = data.Enrollments.Where(x => x.Student == id && (x.End is null || x.End > input.Start)).ToArray();
-                    var dates = relevant.Select(x => x.Start).Concat(data.Rules.Select(x => x.Effective)).Append(input.Start).Where(x => x >= input.Start).Distinct();
-                    Rules.Require(dates.All(day => relevant.Count(x => x.Active(day)) < data.At(day).GroupLimit), "الطالب تجاوز الحد المسموح لعدد الشعب.");
-                    data.Enrollments.Add(new(id, next, input.Start, null));
+                    if (!data.Enrollments.Any(x => x.Student == id && x.Group == next && x.Active(input.Start)))
+                    {
+                        var relevant = data.Enrollments.Where(x => x.Student == id && (x.End is null || x.End > input.Start)).ToArray();
+                        var end = relevant.Where(x => x.Group == next && x.Start > input.Start).Select(x => (DateOnly?)x.Start).Min();
+                        var dates = relevant.Select(x => x.Start).Concat(data.Rules.Select(x => x.Effective)).Append(input.Start)
+                            .Where(x => x >= input.Start && (end is null || x < end)).Distinct();
+                        Rules.Require(dates.All(day => relevant.Count(x => x.Active(day)) < data.At(day).GroupLimit), "الطالب تجاوز الحد المسموح لعدد الشعب.");
+                        data.Enrollments.Add(new(id, next, input.Start, end));
+                    }
                 }
                 data.Audit.Log(actor, "student.enrollment", id);
                 return new { ok = true };
@@ -176,11 +186,17 @@ public static class People
         input.Actor.Admin();
         if (data.Imports.TryGetValue(input.Batch, out var ids)) return ids;
         Rules.Require(input.Rows.Length is > 0 and <= 500, "اختر من ١ إلى ٥٠٠ صف.");
-        var results = new List<Guid>();
-        foreach (var row in input.Rows)
+        var numbers = input.Rows.Select(x => string.IsNullOrWhiteSpace(x.Number) ? null : Rules.Required(x.Number, 40)).ToArray();
+        var known = data.Students.Select(x => x.Number).ToHashSet(StringComparer.Ordinal);
+        foreach (var number in numbers.OfType<string>())
         {
-            var number = Rules.Required(row.Number, 40);
-            Rules.Require(!data.Students.Any(x => x.Number == number), $"رقم الطالب {number} مسجّل بالفعل.");
+            Rules.Require(known.Add(number), $"رقم الطالب {number} مسجّل بالفعل.");
+            data.LastStudentNumber = Math.Max(CurrentNumber(data), NumericNumber(number));
+        }
+        var results = new List<Guid>();
+        foreach (var (row, supplied) in input.Rows.Zip(numbers))
+        {
+            var number = supplied ?? AllocateNumber(data);
             var student = new Student(Guid.NewGuid(), number, Rules.Required(row.Name), row.Birth, row.Contact ?? "", [], null);
             data.Students.Add(student);
             results.Add(student.Id);
@@ -193,7 +209,27 @@ public static class People
     public record UnitInput(string Name, string Kind, Guid? Parent, bool Active = true);
     public record PeriodInput(string Name, DateOnly Start, DateOnly End);
     public record GroupInput(string Name, Guid? Unit, Guid Teacher, Guid? Period, DateOnly Start, DateOnly? End, DayOfWeek[] Days, TimeOnly From, TimeOnly To, DateOnly? Effective);
-    public record StudentInput(string Number, string Name, DateOnly? Birth, string? Contact, VerseSpan[]? Baseline, string? Estimated);
+    private static long NumericNumber(string number) =>
+        long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : 0;
+
+    private static long CurrentNumber(PeopleData data) =>
+        data.LastStudentNumber ?? data.Students.Select(x => NumericNumber(x.Number)).DefaultIfEmpty().Max();
+
+    private static long NextNumber(PeopleData data)
+    {
+        var current = CurrentNumber(data);
+        Rules.Require(current < long.MaxValue, "تعذّر توليد رقم طالب جديد.", 409);
+        return current + 1;
+    }
+
+    private static string AllocateNumber(PeopleData data)
+    {
+        var number = NextNumber(data);
+        data.LastStudentNumber = number;
+        return number.ToString(CultureInfo.InvariantCulture);
+    }
+
+    public record StudentInput(string? Number, string Name, DateOnly? Birth, string? Contact, VerseSpan[]? Baseline, string? Estimated);
     public record EnrollInput(Guid? Group, Guid? CloseGroup, DateOnly Start);
     public record ImportCommit(Actor Actor, Guid Batch, StudentInput[] Rows);
 }

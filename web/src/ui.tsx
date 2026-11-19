@@ -334,6 +334,7 @@ export function Dialog({
       ref={ref}
       className={wide ? "large" : ""}
       onCancel={(e) => {
+        if (e.target !== e.currentTarget) return;
         e.preventDefault();
         if (!busy) close();
       }}

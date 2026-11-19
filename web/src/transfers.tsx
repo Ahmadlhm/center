@@ -312,8 +312,9 @@ export function Imports({ c }: { c: Context }) {
         </span>
         <h2>رفع كشف طلاب</h2>
         <p>
-          Excel بترتيب رقم الطالب، والاسم، وتاريخ الميلاد، وهاتف وليّ الأمر. يدعم
-          الاستخراج أيضًا PDF أو PNG أو JPEG لكشف عربي مطبوع.
+          Excel بترتيب رقم الطالب، والاسم، وتاريخ الميلاد، وهاتف وليّ الأمر. يُنشأ
+          الرقم تلقائيًا إذا كان فارغًا. يدعم الاستخراج أيضًا PDF أو PNG أو JPEG
+          لكشف عربي مطبوع.
         </p>
         <input
           type="file"
@@ -359,6 +360,7 @@ export function Imports({ c }: { c: Context }) {
                   <td>
                     <input
                       aria-label="رقم الطالب"
+                      placeholder="تلقائي"
                       value={row.number}
                       onChange={(e) => update(i, { number: e.target.value })}
                     />
