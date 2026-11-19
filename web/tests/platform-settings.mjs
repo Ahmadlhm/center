@@ -190,6 +190,22 @@ try {
   const duties = await call(manager, "GET", center + "/work/duties");
   const entry = duties.items.find((x) => x.employee === director);
   assert(entry?.scheduled);
+  if (entry.checkIn?.state === "verified") {
+    await call(
+      platform,
+      "POST",
+      center +
+        "/work/duties/configuration/" +
+        entry.id +
+        "/review?date=" +
+        people.today,
+      {
+        teacher: director,
+        state: "absent",
+        reason: "إعادة اختبار حساب المدير التجريبي",
+      },
+    );
+  }
   const review =
     center + "/work/checkins/" + entry.id + "/review?date=" + people.today;
   await call(
