@@ -1247,6 +1247,20 @@ td input {
   padding: 30px;
   margin: auto;
 }
+.auth-checkpoint {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 32px);
+}
+.auth-checkpoint > .card {
+  width: 100%;
+  margin: 0;
+}
+.google-admin-link {
+  width: fit-content;
+  margin-block-start: 14px;
+}
 .admin-platform h2 {
   margin-bottom: 10px;
 }

@@ -90,7 +90,7 @@ public static class Passwords
                 Rules.Require(!Identity.CheckPassword(active, input.Password), "اختر كلمة مرور جديدة تختلف عن الحالية.");
                 data.Accounts.Upsert(x => x.Id == active.Id, active with { Password = Identity.Password(input.Password), MustChangePassword = false, TemporaryUntil = null });
                 Revoke(data, active.Id);
-                data.Sessions.Add(new(Identity.Hash(next), active.Id, DateTimeOffset.UtcNow.AddHours(12), session!.Verified));
+                data.Sessions.Add(session! with { Hash = Identity.Hash(next), Expires = DateTimeOffset.UtcNow.AddHours(12) });
                 return true;
             });
             Identity.WriteCookie(http, config, next);

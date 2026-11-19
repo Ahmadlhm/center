@@ -99,12 +99,16 @@ public static class Identity
     public static bool RequiresMfa(State store, Account account, IdentityData data) =>
         store.RequireMfa && (account.Platform || data.Memberships.Any(x => x.Account == account.Id && x.Active && x.Roles.Contains("admin")
             && data.Centers.Any(c => c.Id == x.Center && c.Active)));
-    public static bool IsVerified(IdentityData data, string token) =>
-        data.Sessions.Any(x => x.Hash == Hash(token) && x.Expires > DateTimeOffset.UtcNow && x.Verified);
+    private static Session? SessionWithToken(IdentityData data, string token)
+    {
+        var hash = Hash(token);
+        return data.Sessions.Find(x => x.Hash == hash && x.Expires > DateTimeOffset.UtcNow);
+    }
     private static void RequireReady(State store, Account account, IdentityData data, string token)
     {
-        Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
-        Rules.Require(!RequiresMfa(store, account, data) || IsVerified(data, token), "أكمل التحقق بمفتاح المرور.", 403);
+        var session = SessionWithToken(data, token);
+        Rules.Require(!account.MustChangePassword || session is { Google: true }, "غيّر كلمة المرور المؤقتة أولًا.", 403);
+        Rules.Require(!RequiresMfa(store, account, data) || session is { Verified: true }, "أكمل التحقق بمفتاح المرور.", 403);
     }
     public static async Task AccountReady(State store, HttpContext http)
     {
@@ -130,7 +134,10 @@ public static class Identity
         var g = app.MapGroup("/api/auth");
         Passwords.Map(g);
         Catalog.Map(app);
-        g.MapGet("/info", (IConfiguration config) => new { demo = config.GetValue<bool>("CENTER_DEMO") });
+        GoogleSignIn.Map(g);
+        g.MapGet("/info", (IConfiguration config, GoogleSignIn google) => google.Enabled
+            ? Results.Json(new { demo = config.GetValue<bool>("CENTER_DEMO"), googleSignIn = true })
+            : Results.Json(new { demo = config.GetValue<bool>("CENTER_DEMO") }));
         g.MapPost("/login", async (Login input, HttpContext context, State store, IConfiguration config) =>
         {
             var email = Rules.OriginalEmail(input.Email);
@@ -147,13 +154,16 @@ public static class Identity
             WriteCookie(context, config, token);
             return Results.Ok(new { ok = true });
         }).RequireRateLimiting("public");
-        g.MapGet("/me", async (HttpContext context, State store) =>
+        g.MapGet("/me", async (HttpContext context, State store, GoogleSignIn google) =>
         {
             var (account, data) = await Current(store, context);
+            var session = SessionWithToken(data, SessionToken(context));
             return new
             {
-                account.Id, account.Name, account.Email, account.Platform, account.MustChangePassword,
-                requiresMfa = RequiresMfa(store, account, data) && !IsVerified(data, SessionToken(context)),
+                account.Id, account.Name, account.Email, account.Platform,
+                mustChangePassword = account.MustChangePassword && session is not { Google: true },
+                requiresMfa = RequiresMfa(store, account, data) && session is not { Verified: true },
+                googleSignIn = google.IsTarget(account),
                 hasPasskey = data.Credentials.Any(x => x.Account == account.Id),
                 centers = from m in data.Memberships
                           join c in data.Centers on m.Center equals c.Id

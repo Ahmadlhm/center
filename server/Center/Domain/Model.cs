@@ -6,9 +6,10 @@ public record Actor(Guid Id, string Name, bool Platform, Guid Center, string[] R
     public bool Teacher => Roles.Contains("teacher");
     public bool Manager => Roles.Contains("manager");
 }
-public record Account(Guid Id, string Name, string Email, string Password, bool Platform = false, bool Active = true, bool MustChangePassword = false, DateTimeOffset? TemporaryUntil = null);
+public record Account(Guid Id, string Name, string Email, string Password, bool Platform = false, bool Active = true, bool MustChangePassword = false,
+    DateTimeOffset? TemporaryUntil = null, string? GoogleSubject = null);
 public record Membership(Guid Account, Guid Center, string[] Roles, Guid[] Units, bool Active = true);
-public record Session(string Hash, Guid Account, DateTimeOffset Expires, bool Verified = false);
+public record Session(string Hash, Guid Account, DateTimeOffset Expires, bool Verified = false, bool Google = false);
 public record Request(Guid Id, string Name, string Contact, string Email, string State, DateTimeOffset Created, string? Reason = null, Guid? Center = null);
 public record CenterInfo(Guid Id, string Name, string TimeZone, bool Active = true, string? Logo = null, string? MapUrl = null);
 public record Invite(string Hash, string Name, string Email, Guid Center, string[] Roles, Guid[] Units, DateTimeOffset Expires);

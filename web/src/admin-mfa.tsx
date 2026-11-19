@@ -5,6 +5,7 @@ import {
 } from "@simplewebauthn/browser";
 import { Fingerprint, LogOut } from "lucide-react";
 import { api, message, type Session } from "./model";
+import { GoogleAdminLink } from "./passwords";
 import { Button, ErrorBox } from "./ui";
 
 export function AdminMfa({
@@ -22,6 +23,10 @@ export function AdminMfa({
     setError("");
     setBusy(true);
     try {
+      if (!window.isSecureContext)
+        throw new Error(
+          "يحتاج مفتاح المرور اتصال HTTPS بشهادة يثق بها المتصفح.",
+        );
       if (user.hasPasskey) {
         const challenge = await api<{
           id: string;
@@ -49,13 +54,18 @@ export function AdminMfa({
       }
       await done();
     } catch (e) {
-      setError(message(e));
+      const detail = message(e);
+      setError(
+        /tls certificate errors/i.test(detail)
+          ? "تعذّر استخدام مفتاح المرور لأن المتصفح لا يثق بشهادة HTTPS لهذا الاتصال."
+          : detail,
+      );
     } finally {
       setBusy(false);
     }
   }
   return (
-    <main className="standalone">
+    <main className="auth-checkpoint">
       <section className="card panel mfa-panel">
         <span className="metric-icon mint">
           <Fingerprint size={23} />
@@ -76,6 +86,7 @@ export function AdminMfa({
             خروج
           </Button>
         </div>
+        {user.googleSignIn && <GoogleAdminLink />}
       </section>
     </main>
   );

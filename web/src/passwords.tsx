@@ -8,6 +8,14 @@ export type IssuedCredentials = {
   token: string | null;
 };
 
+export function GoogleAdminLink() {
+  return (
+    <a className="btn outline google-admin-link" href="/api/auth/google/start">
+      تسجيل الدخول باستخدام Google
+    </a>
+  );
+}
+
 export function TemporaryCredentials({
   info,
   close,
@@ -43,10 +51,12 @@ export function TemporaryCredentials({
 
 export function ChangePassword({
   forced = false,
+  googleSignIn = false,
   done,
   logout,
 }: {
   forced?: boolean;
+  googleSignIn?: boolean;
   done?: () => Promise<void>;
   logout?: () => Promise<void>;
 }) {
@@ -132,7 +142,8 @@ export function ChangePassword({
           )}
         </div>
       </form>
+      {googleSignIn && <GoogleAdminLink />}
     </section>
   );
-  return forced ? <main className="standalone">{panel}</main> : panel;
+  return forced ? <main className="auth-checkpoint">{panel}</main> : panel;
 }

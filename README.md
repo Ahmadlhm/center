@@ -51,6 +51,14 @@ docker compose -f compose.yaml -f compose.production.yaml ps
 
 تُنشأ أدوار قاعدة البيانات عند تهيئة التخزين لأول مرة. عند تغيير كلمات المرور لقاعدة موجودة حدّث الأدوار فيها بالتزامن مع الإعدادات. اضبط موقع المركز وحدود الدقة والنافذة الزمنية بعد تجربتها على هواتف المعلّمين داخل المبنى. يستعمل إثبات الدوام الموقع المبلّغ من جهاز المستخدم وتحقق مفتاح المرور. تظهر طلبات المراجعة للمدير عند تعذّر التحقق.
 
+### تسجيل دخول مدير المنصة عبر Google
+
+أنشئ عميل OAuth من نوع **Web application** وأضف مسار العودة `https://<CENTER_DOMAIN>/api/auth/google/callback` في Google Cloud. إذا كانت شاشة الموافقة في وضع الاختبار، أضف بريد Google المعتمد إلى مستخدمي الاختبار. [إعداد عميل Google OAuth](https://developers.google.com/identity/openid-connect/openid-connect#settingup)
+
+في ملف بيئة الإنتاج على الخادم، املأ `CENTER_GOOGLE_CLIENT_ID` و`CENTER_GOOGLE_CLIENT_SECRET` و`CENTER_GOOGLE_ADMIN_EMAIL`. يحدد `CENTER_GOOGLE_PLATFORM_EMAIL` بريد حساب مدير المنصة الموجود عندما يختلف عن `CENTER_PLATFORM_EMAIL`. اربط بريد Gmail أو Workspace موثّقًا، أو ثبّت معرّف حساب Google في `CENTER_GOOGLE_ADMIN_SUBJECT` عند استخدام عنوان خارج Gmail وWorkspace. يظهر الزر عند اكتمال الإعداد. يُربط معرّف Google بالحساب الموجود عند أول دخول ناجح.
+
+يمنح تسجيل Google الموثّق جلسة لمدير المنصة مباشرة. ويظل مسار الدخول بكلمة المرور ومفتاح المرور صالحًا للاسترداد. يستمر مدير المركز والمعلم باستخدام مسار الدخول المعتاد.
+
 يمكن أخذ نسخة احتياطية من **جميع المخططات، بما فيها الشهادات** عبر الأمر التالي. احفظ الناتج في تخزين مناسب محمي بالوصول، واختبر الاستعادة في بيئة منفصلة.
 
 ```sh
@@ -89,7 +97,7 @@ node tests/smoke.mjs
 
 ## خط الواجهة
 
-تدعم الواجهة **Tufuli Arabic**. للاستخدام على النطاق الفعلي ضع نسختي الويب المرخّصتين في `web/public/fonts/tufuli-regular.woff2` و`web/public/fonts/tufuli-bold.woff2` قبل بناء حاوية الويب. يمكن تركيب مجلد الخطوط محليًا للمعاينة في `/usr/share/nginx/html/fonts` باستخدام الاسمين `tufuli-regular.otf` و`tufuli-bold.otf`. عند غياب الملفات يستخدم المتصفح الخط البديل. تبقى ملفات الخط خارج Git. [ترخيص Tufuli Arabic](https://www.myfonts.com/collections/tufuli-arabic-font-namela)
+تدعم الواجهة **Tufuli Arabic**. ضع نسختي الويب المرخّصتين باسمَي `tufuli-regular.woff2` و`tufuli-bold.woff2` في مجلد على خادم الإنتاج واضبط `CENTER_FONTS_DIR` بمساره ليبقى متاحًا عبر الإصدارات. المسار الافتراضي `web/public/fonts`. يمكن تركيب مجلد الخطوط محليًا للمعاينة في `/usr/share/nginx/html/fonts` باستخدام الاسمين `tufuli-regular.otf` و`tufuli-bold.otf`. عند غياب الملفات يستخدم المتصفح الخط البديل. تبقى ملفات الخط خارج Git. [ترخيص Tufuli Arabic](https://www.myfonts.com/collections/tufuli-arabic-font-namela)
 
 يشمل اختبار `node tests/courses-and-reports.mjs` إخفاء تقارير الإدارة عن المعلّم، وفلاتر الوحدات والشعب، واعتماد إسناد المعلّمين، والإشعارات، ولقاءات التلاوة، وإسناد المسابقات.
 

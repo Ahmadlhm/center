@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient.internal", LogLevel.Warning);
 var config = builder.Configuration;
 var mode = config["CENTER_SERVICE"] ?? "all";
 var origin = new Uri(config["CENTER_ORIGIN"] ?? "http://localhost:5173");
@@ -28,8 +30,11 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(config["CENTER_DB"] ?
     "Host=127.0.0.1;Port=55432;Database=center;Username=center_local"));
 builder.Services.AddHttpClient("internal", c => c.Timeout = TimeSpan.FromSeconds(120)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
 builder.Services.AddSingleton<State>();
+var googleSignIn = new GoogleSignIn(config, origin);
 if (mode is "identity" or "all")
 {
+    builder.Services.AddSingleton(googleSignIn);
+    googleSignIn.Register(builder.Services);
     builder.Services.AddSingleton<PasswordMail>();
     builder.Services.AddHostedService(services => services.GetRequiredService<PasswordMail>());
 }
@@ -83,6 +88,7 @@ app.Use(async (ctx, next) =>
     }
 });
 app.UseRateLimiter();
+if (store.Local(Module.Identity) && googleSignIn.Enabled) app.UseAuthentication();
 app.MapGet("/health", () => new { status = "ok", service = mode });
 if (mode == "gateway")
 {
@@ -112,7 +118,7 @@ if (mode == "gateway")
         using var response = await factory.CreateClient("internal").SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ctx.RequestAborted);
         ctx.Response.StatusCode = (int)response.StatusCode;
         foreach (var header in response.Headers.Concat(response.Content.Headers))
-            if (header.Key is "Content-Type" or "Content-Disposition" or "Set-Cookie" or "Cache-Control" or "Retry-After")
+            if (header.Key is "Content-Type" or "Content-Disposition" or "Set-Cookie" or "Location" or "Cache-Control" or "Retry-After" or "Referrer-Policy")
                 ctx.Response.Headers[header.Key] = header.Value.ToArray();
         await response.Content.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
     });
