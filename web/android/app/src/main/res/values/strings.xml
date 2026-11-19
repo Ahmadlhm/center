@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">المراكز القرآنية</string>
+    <string name="title_activity_main">المراكز القرآنية</string>
+    <string name="package_name">org.qurancenters.staff</string>
+    <string name="custom_url_scheme">org.qurancenters.staff</string>
+</resources>

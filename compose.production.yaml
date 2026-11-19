@@ -1,0 +1,53 @@
+name: quran-center-production
+
+x-production-env: &production-env
+  CENTER_ORIGIN: https://${CENTER_DOMAIN:?Set CENTER_DOMAIN in .env}
+  CENTER_DEMO: "false"
+  CENTER_ALLOW_HTTP: "false"
+  CENTER_INTERNAL_KEY: ${CENTER_INTERNAL_KEY:?Set CENTER_INTERNAL_KEY in .env}
+
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [web]
+    environment:
+      CENTER_DOMAIN: ${CENTER_DOMAIN:?Set CENTER_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    networks: [frontend]
+  web:
+    ports: !reset []
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${CENTER_DB_ADMIN_PASSWORD:?Set CENTER_DB_ADMIN_PASSWORD in .env}
+      IDENTITY_PASSWORD: ${CENTER_IDENTITY_DB_PASSWORD:?Set CENTER_IDENTITY_DB_PASSWORD in .env}
+      PEOPLE_PASSWORD: ${CENTER_PEOPLE_DB_PASSWORD:?Set CENTER_PEOPLE_DB_PASSWORD in .env}
+      EDUCATION_PASSWORD: ${CENTER_EDUCATION_DB_PASSWORD:?Set CENTER_EDUCATION_DB_PASSWORD in .env}
+      WORK_PASSWORD: ${CENTER_WORK_DB_PASSWORD:?Set CENTER_WORK_DB_PASSWORD in .env}
+      DOCUMENTS_PASSWORD: ${CENTER_DOCUMENTS_DB_PASSWORD:?Set CENTER_DOCUMENTS_DB_PASSWORD in .env}
+  gateway:
+    environment: *production-env
+  identity:
+    environment:
+      <<: *production-env
+      CENTER_SMTP_LOCAL_PLAINTEXT: "false"
+  people:
+    environment: *production-env
+  education:
+    environment: *production-env
+  work:
+    environment: *production-env
+  documents:
+    environment: *production-env
+  import:
+    environment: *production-env
+
+volumes:
+  proxy-data:
+  proxy-config:
