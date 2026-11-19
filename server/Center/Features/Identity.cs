@@ -225,6 +225,28 @@ public static class Identity
                 return new { request, token, credentials };
             });
         });
+        g.MapPut("/centers/{center:guid}", async (Guid center, CreateCenter input, HttpContext context, State store) =>
+        {
+            var actor = await PlatformActor(store, context);
+            Rules.Require(center != Guid.Empty, "معرّف المركز غير صالح.");
+            var name = Rules.Required(input.Name);
+            var zone = Rules.Required(input.TimeZone);
+            TimeZoneInfo.FindSystemTimeZoneById(zone);
+            return await store.Change<IdentityData, CreatedCenter>(Module.Identity, Guid.Empty, data =>
+            {
+                var existing = data.Centers.Find(x => x.Id == center);
+                if (existing is not null) return new(existing, null);
+
+                var info = new CenterInfo(center, name, zone);
+                var credentials = input.Director is { } director
+                    ? Passwords.Issue(data, Rules.Required(director.Name), Rules.OriginalEmail(director.Email), center, ["admin"], [])
+                    : null;
+                data.Centers.Add(info);
+                data.Audit.Log(actor, "center.create", center);
+                if (credentials is not null) data.Audit.Log(actor, "staff.provision", center);
+                return new(info, credentials);
+            });
+        });
         g.MapPut("/centers/{center:guid}/active", async (Guid center, Active input, HttpContext context, State store) =>
         {
             var actor = await PlatformActor(store, context);
@@ -387,6 +409,9 @@ public static class Identity
     public record Login(string Email, string Password);
     public record Apply(string Name, string Contact, string Email);
     public record Decision(bool Approve, string? Reason, bool Temporary = false);
+    public record CenterDirector(string Name, string Email);
+    public record CreateCenter(string Name, string TimeZone, CenterDirector? Director);
+    public record CreatedCenter(CenterInfo Center, Passwords.Provisioned? Credentials);
     public record Active(bool Value);
     public record Activation(string Token, string Password);
     public record StaffInvite(string Name, string Email, string[] Roles, Guid[] Units);

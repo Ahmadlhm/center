@@ -45,6 +45,7 @@ import {
   go,
   message,
   roleLabel,
+  uid,
   type Center,
   type Context,
   type Education,
@@ -54,6 +55,7 @@ import {
   type Work,
 } from "./model";
 import {
+  Add,
   Button,
   Dialog,
   Empty,
@@ -421,6 +423,8 @@ function Platform({
 }) {
   const [tab, setTab] = useState("centers");
   const [selected, setSelected] = useState("");
+  const [configurationTab, setConfigurationTab] = useState("settings");
+  const [creation, setCreation] = useState<{ id: string; withDirector: boolean }>();
   const [catalog, setCatalog] = useState<Catalog>();
   const [credentials, setCredentials] = useState<IssuedCredentials>();
   const [data, setData] = useState<PlatformData>();
@@ -434,6 +438,11 @@ function Platform({
     api<PlatformData>("/api/auth/requests")
       .then(setData)
       .catch((e) => setError(message(e)));
+  const openCenterAccounts = (id: string) => {
+    setSelected(id);
+    setConfigurationTab("staff");
+    setTab("configuration");
+  };
   useEffect(() => {
     void reload();
     void api<Catalog>("/api/auth/catalog")
@@ -448,10 +457,17 @@ function Platform({
           <h1>إدارة المنصة</h1>
           <p>المراكز والكتالوج والمناهج وصلاحيات الحسابات</p>
         </div>
-        <Button kind="outline" onClick={() => void logout()}>
-          <LogOut size={17} />
-          تسجيل الخروج
-        </Button>
+        <div className="actions">
+          {tab === "centers" && (
+            <Add onClick={() => setCreation({ id: uid(), withDirector: true })}>
+              إضافة مركز
+            </Add>
+          )}
+          <Button kind="outline" onClick={() => void logout()}>
+            <LogOut size={17} />
+            تسجيل الخروج
+          </Button>
+        </div>
       </div>
       {error && <ErrorBox>{error}</ErrorBox>}
       <Tabs
@@ -530,22 +546,30 @@ function Platform({
                     />
                   </td>
                   <td>
-                    <Button
-                      kind="outline"
-                      onClick={() =>
-                        void api(
-                          "/api/auth/centers/" + x.id + "/active",
-                          "PUT",
-                          {
-                            value: !x.active,
-                          },
-                        )
-                          .then(reload)
-                          .catch((e) => setError(message(e)))
-                      }
-                    >
-                      {x.active ? "تعليق" : "تفعيل"}
-                    </Button>
+                    <div className="actions">
+                      {x.active && (
+                        <Button
+                          kind="outline"
+                          onClick={() => openCenterAccounts(x.id)}
+                        >
+                          الحسابات
+                        </Button>
+                      )}
+                      <Button
+                        kind="outline"
+                        onClick={() =>
+                          void api(
+                            "/api/auth/centers/" + x.id + "/active",
+                            "PUT",
+                            { value: !x.active },
+                          )
+                            .then(reload)
+                            .catch((e) => setError(message(e)))
+                        }
+                      >
+                        {x.active ? "تعليق" : "تفعيل"}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -563,7 +587,10 @@ function Platform({
               <Select
                 options={options(data?.centers.filter((x) => x.active) ?? [])}
                 value={selected}
-                onChange={setSelected}
+                onChange={(id) => {
+                  setSelected(id);
+                  setConfigurationTab("settings");
+                }}
                 placeholder="اختر المركز"
               />
             </Field>
@@ -575,11 +602,64 @@ function Platform({
               user={user}
               catalog={catalog}
               reload={reload}
+              tab={configurationTab}
+              onTab={setConfigurationTab}
             />
           )}
         </>
       )}
       {tab === "account" && <ChangePassword />}
+      {creation && (
+        <Dialog
+          title="إضافة مركز"
+          confirm="إنشاء المركز"
+          close={() => setCreation(undefined)}
+          submit={async (form) => {
+            const result = await api<{
+              center: PlatformData["centers"][number];
+              credentials: IssuedCredentials | null;
+            }>("/api/auth/centers/" + creation.id, "PUT", {
+              name: val(form, "name"),
+              timeZone: val(form, "timeZone"),
+              director: creation.withDirector
+                ? { name: val(form, "director"), email: val(form, "email") }
+                : null,
+            });
+            await reload();
+            openCenterAccounts(result.center.id);
+            if (result.credentials?.token) setToken(result.credentials.token);
+            if (result.credentials?.temporaryPassword)
+              setCredentials(result.credentials);
+          }}
+        >
+          <Field label="اسم المركز">
+            <input name="name" maxLength={150} required />
+          </Field>
+          <Field label="المنطقة الزمنية">
+            <input name="timeZone" defaultValue="Asia/Amman" dir="ltr" required />
+          </Field>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={creation.withDirector}
+              onChange={(e) =>
+                setCreation({ ...creation, withDirector: e.target.checked })
+              }
+            />
+            إنشاء حساب لمدير المركز
+          </label>
+          {creation.withDirector && (
+            <div className="form-grid">
+              <Field label="اسم مدير المركز">
+                <input name="director" maxLength={150} required />
+              </Field>
+              <Field label="البريد الإلكتروني للمدير">
+                <input name="email" type="email" dir="ltr" required />
+              </Field>
+            </div>
+          )}
+        </Dialog>
+      )}
       {decision && (
         <Dialog
           title={decision.approve ? "الموافقة على انضمام المركز" : "رفض الطلب"}

@@ -50,6 +50,7 @@ public static class Passwords
         if (existing != null)
         {
             Rules.Require(existing.Active, "هذا الحساب غير نشط.");
+            Rules.Require(!existing.Platform, "استخدم بريدًا مختلفًا عن حساب مدير المنصة.");
             return new(email, null, Identity.AddInvite(data, name, email, center, roles, units));
         }
         var password = Temporary();
