@@ -87,10 +87,13 @@ public static class Passwords
                 var active = Rules.Found(data.Accounts.Find(x => x.Id == account.Id && x.Active));
                 var session = data.Sessions.Find(x => x.Account == active.Id && x.Hash == current && x.Expires > DateTimeOffset.UtcNow);
                 Rules.Require(session != null && Identity.CheckPassword(active, input.CurrentPassword), "كلمة المرور الحالية غير صحيحة.", 403);
+                Rules.Require(!active.Platform || !store.RequireMfa || active.MustChangePassword ||
+                    session!.Authenticator == PlatformAuthenticator.Verified, "أكمل التحقق عبر التطبيق قبل تغيير كلمة المرور.", 403);
                 Rules.Require(!Identity.CheckPassword(active, input.Password), "اختر كلمة مرور جديدة تختلف عن الحالية.");
                 data.Accounts.Upsert(x => x.Id == active.Id, active with { Password = Identity.Password(input.Password), MustChangePassword = false, TemporaryUntil = null });
                 Revoke(data, active.Id);
-                data.Sessions.Add(session! with { Hash = Identity.Hash(next), Expires = DateTimeOffset.UtcNow.AddHours(12) });
+                var duration = session!.Authenticator == PlatformAuthenticator.Pending ? 10 : 720;
+                data.Sessions.Add(session with { Hash = Identity.Hash(next), Expires = DateTimeOffset.UtcNow.AddMinutes(duration) });
                 return true;
             });
             Identity.WriteCookie(http, config, next);

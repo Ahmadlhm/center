@@ -8,7 +8,8 @@
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="10.0.0" />
     <PackageReference Include="Microsoft.Bcl.Memory" Version="9.0.14" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.15" />
+    <PackageReference Include="Otp.NET" Version="1.4.1" />
+    <PackageReference Include="QRCoder" Version="1.8.1" />
     <PackageReference Include="Fido2" Version="4.0.0" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="QuestPDF" Version="2025.12.3" />

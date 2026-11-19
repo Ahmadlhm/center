@@ -58,6 +58,11 @@ public static class Identity
                     data.Centers.Upsert(x => x.Id == DemoCenter, nada with { MapUrl = DemoMap });
                 data.DemoMapInitialized = true;
             }
+            if (store.RequireMfa)
+            {
+                var administrators = data.Accounts.Where(x => x.Platform).Select(x => x.Id).ToHashSet();
+                data.Sessions.RemoveAll(x => x.Authenticator is null && administrators.Contains(x.Account));
+            }
             return true;
         });
     }
@@ -99,6 +104,9 @@ public static class Identity
     public static bool RequiresMfa(State store, Account account, IdentityData data) =>
         store.RequireMfa && (account.Platform || data.Memberships.Any(x => x.Account == account.Id && x.Active && x.Roles.Contains("admin")
             && data.Centers.Any(c => c.Id == x.Center && c.Active)));
+    private static bool NeedsMfa(State store, Account account, IdentityData data, Session? session) =>
+        RequiresMfa(store, account, data) &&
+        (account.Platform ? session?.Authenticator != PlatformAuthenticator.Verified : session is not { Verified: true });
     private static Session? SessionWithToken(IdentityData data, string token)
     {
         var hash = Hash(token);
@@ -107,8 +115,9 @@ public static class Identity
     private static void RequireReady(State store, Account account, IdentityData data, string token)
     {
         var session = SessionWithToken(data, token);
-        Rules.Require(!account.MustChangePassword || session is { Google: true }, "غيّر كلمة المرور المؤقتة أولًا.", 403);
-        Rules.Require(!RequiresMfa(store, account, data) || session is { Verified: true }, "أكمل التحقق بمفتاح المرور.", 403);
+        Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
+        Rules.Require(!NeedsMfa(store, account, data, session), account.Platform ?
+            "أكمل التحقق برمز تطبيق Google Authenticator." : "أكمل التحقق بمفتاح المرور.", 403);
     }
     public static async Task AccountReady(State store, HttpContext http)
     {
@@ -134,10 +143,8 @@ public static class Identity
         var g = app.MapGroup("/api/auth");
         Passwords.Map(g);
         Catalog.Map(app);
-        GoogleSignIn.Map(g);
-        g.MapGet("/info", (IConfiguration config, GoogleSignIn google) => google.Enabled
-            ? Results.Json(new { demo = config.GetValue<bool>("CENTER_DEMO"), googleSignIn = true })
-            : Results.Json(new { demo = config.GetValue<bool>("CENTER_DEMO") }));
+        PlatformAuthenticator.Map(g);
+        g.MapGet("/info", (IConfiguration config) => new { demo = config.GetValue<bool>("CENTER_DEMO") });
         g.MapPost("/login", async (Login input, HttpContext context, State store, IConfiguration config) =>
         {
             var email = Rules.OriginalEmail(input.Email);
@@ -148,22 +155,23 @@ public static class Identity
                 Rules.Require(a != null && (a.TemporaryUntil is null || a.TemporaryUntil > DateTimeOffset.UtcNow) && CheckPassword(a, input.Password),
                     "البريد أو كلمة المرور غير صحيحة.", 401);
                 data.Sessions.RemoveAll(x => x.Expires <= DateTimeOffset.UtcNow);
-                data.Sessions.Add(new(Hash(token), a!.Id, DateTimeOffset.UtcNow.AddMinutes(a.MustChangePassword ? 20 : 720)));
+                var authenticator = a!.Platform && store.RequireMfa ? PlatformAuthenticator.Pending : null;
+                var duration = a.MustChangePassword ? 20 : authenticator is not null ? 10 : 720;
+                data.Sessions.Add(new(Hash(token), a.Id, DateTimeOffset.UtcNow.AddMinutes(duration), Authenticator: authenticator));
                 return true;
             });
             WriteCookie(context, config, token);
             return Results.Ok(new { ok = true });
         }).RequireRateLimiting("public");
-        g.MapGet("/me", async (HttpContext context, State store, GoogleSignIn google) =>
+        g.MapGet("/me", async (HttpContext context, State store) =>
         {
             var (account, data) = await Current(store, context);
             var session = SessionWithToken(data, SessionToken(context));
             return new
             {
-                account.Id, account.Name, account.Email, account.Platform,
-                mustChangePassword = account.MustChangePassword && session is not { Google: true },
-                requiresMfa = RequiresMfa(store, account, data) && session is not { Verified: true },
-                googleSignIn = google.IsTarget(account),
+                account.Id, account.Name, account.Email, account.Platform, account.MustChangePassword,
+                requiresMfa = NeedsMfa(store, account, data, session),
+                hasAuthenticator = account.Authenticator != null,
                 hasPasskey = data.Credentials.Any(x => x.Account == account.Id),
                 centers = from m in data.Memberships
                           join c in data.Centers on m.Center equals c.Id

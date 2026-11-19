@@ -69,7 +69,7 @@ public static class Passkeys
     {
         var (account, data) = await Identity.Current(store, http);
         Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
-        Rules.Require(Identity.RequiresMfa(store, account, data), "التحقق الإضافي غير مطلوب.", 403);
+        Rules.Require(!account.Platform && Identity.RequiresMfa(store, account, data), "هذا الحساب لا يستخدم التحقق بمفتاح المرور عند تسجيل الدخول.", 403);
         Rules.Require(!enrolling || !data.Credentials.Any(x => x.Account == account.Id), "استخدم مفتاح المرور المسجل.", 403);
         return new(account.Id, account.Name, account.Platform, Guid.Empty, [], []);
     }

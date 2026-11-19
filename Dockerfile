@@ -7,6 +7,7 @@ RUN dotnet publish server/Center/Center.csproj -c Release --no-restore -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 USER root
+RUN install -d -m 0700 -o "$APP_UID" -g "$APP_UID" /var/lib/center-keys
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources && apt-get -o Acquire::Retries=4 -o Acquire::By-Hash=force update && apt-get install -y --no-install-recommends ca-certificates fonts-noto-core tzdata && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app .
