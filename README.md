@@ -95,7 +95,7 @@ node tests/smoke.mjs
 
 ## خط الواجهة
 
-تدعم الواجهة **Tufuli Arabic**. ضع نسختي الويب المرخّصتين باسمَي `tufuli-regular.woff2` و`tufuli-bold.woff2` في مجلد على خادم الإنتاج واضبط `CENTER_FONTS_DIR` بمساره ليبقى متاحًا عبر الإصدارات. المسار الافتراضي `web/public/fonts`. يمكن تركيب مجلد الخطوط محليًا للمعاينة في `/usr/share/nginx/html/fonts` باستخدام الاسمين `tufuli-regular.otf` و`tufuli-bold.otf`. عند غياب الملفات يستخدم المتصفح الخط البديل. تبقى ملفات الخط خارج Git. [ترخيص Tufuli Arabic](https://www.myfonts.com/collections/tufuli-arabic-font-namela)
+تستخدم الواجهة خط **Noto Sans Arabic Variable**. تُضمَّن أوزان الخط وترخيصه مع بناء الويب، ويحمّله المتصفح من حاوية الواجهة مباشرة. [ترخيص الخط](web/public/licenses/noto-sans-arabic.txt)
 
 يشمل اختبار `node tests/courses-and-reports.mjs` إخفاء تقارير الإدارة عن المعلّم، وفلاتر الوحدات والشعب، واعتماد إسناد المعلّمين، والإشعارات، ولقاءات التلاوة، وإسناد المسابقات.
 
