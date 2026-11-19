@@ -30,6 +30,19 @@ try {
   await page.goto("/");
   await platform();
   await open.waitFor();
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const card = await page
+      .getByRole("heading", { name: "إعداد مفتاح مرور للمدير" })
+      .locator("..")
+      .boundingBox();
+    assert(card);
+    assert(Math.abs(card.x + card.width / 2 - viewport.width / 2) <= 2);
+    assert(Math.abs(card.y + card.height / 2 - viewport.height / 2) <= 2);
+  }
   assert.equal((await context.request.get("/api/auth/catalog")).status(), 403);
   await open.click();
   await page.getByRole("button", { name: "كتالوج المنصة" }).waitFor();

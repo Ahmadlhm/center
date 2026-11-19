@@ -1,5 +1,6 @@
 import {
   ChangePassword,
+  GoogleAdminLink,
   TemporaryCredentials,
   type IssuedCredentials,
 } from "./passwords";
@@ -150,10 +151,17 @@ function App() {
         <p>جارٍ فتح المنصة…</p>
       </div>
     );
-  if (!session || hash.startsWith("reset/"))
+  if (!session || hash.startsWith("reset/") || hash === "google-error")
     return <Auth key={hash} hash={hash} login={load} />;
   if (session.mustChangePassword)
-    return <ChangePassword forced done={load} logout={logout} />;
+    return (
+      <ChangePassword
+        forced
+        googleSignIn={session.googleSignIn}
+        done={load}
+        logout={logout}
+      />
+    );
   if (session.requiresMfa)
     return <AdminMfa user={session} done={load} logout={logout} />;
   if (session.platform && (!session.centers.length || hash === "platform"))
@@ -181,6 +189,7 @@ const demos = [
 ];
 function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const [demo, setDemo] = useState(false);
+  const [googleSignIn, setGoogleSignIn] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
@@ -190,8 +199,11 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const reset = hash.startsWith("reset/");
   const signInPage = !apply && !activate && !forgot && !reset;
   useEffect(() => {
-    void api<{ demo: boolean }>("/api/auth/info")
-      .then((x) => setDemo(x.demo))
+    void api<{ demo: boolean; googleSignIn?: boolean }>("/api/auth/info")
+      .then((x) => {
+        setDemo(x.demo);
+        setGoogleSignIn(x.googleSignIn === true);
+      })
       .catch(() => {});
   }, []);
   async function signIn(email: string, password: string) {
@@ -356,6 +368,13 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
               </Button>
             </form>
           )}
+          {hash === "google-error" && (
+            <ErrorBox>
+              تعذّر الدخول عبر Google. استخدم حساب Google المعتمد لإدارة المنصة
+              وحاول مرة أخرى.
+            </ErrorBox>
+          )}
+          {googleSignIn && signInPage && <GoogleAdminLink />}
           {demo && signInPage && (
             <div className="demo">
               <small>تجربة المنصة ببيانات نموذجية</small>
