@@ -9,7 +9,6 @@ import { StaffDuty } from "./staff-duty";
 import type { Catalog } from "./quran";
 import { InboxButton } from "./inbox";
 import React, { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AdminMfa } from "./admin-mfa";
 import { AuthenticatorMfa } from "./authenticator-mfa";
 import { createRoot } from "react-dom/client";
 import {
@@ -157,15 +156,13 @@ function App() {
     return <Auth key={hash} hash={hash} login={load} />;
   if (session.mustChangePassword)
     return <ChangePassword forced done={load} logout={logout} />;
-  if (session.requiresMfa)
-    return session.platform ? (
+  if (session.platform && session.requiresMfa)
+    return (
       <AuthenticatorMfa
         enrolled={session.hasAuthenticator}
         done={load}
         logout={logout}
       />
-    ) : (
-      <AdminMfa user={session} done={load} logout={logout} />
     );
   if (session.platform && (!session.centers.length || hash === "platform"))
     return <Platform user={session} logout={logout} />;
@@ -807,7 +804,7 @@ function Workspace({
         course: recitationDetail ? "تفاصيل دورة التلاوة" : "تفاصيل الدورة",
         "recitation-course": "تفاصيل دورة التلاوة",
         import: "استيراد الطلاب",
-        passkey: "مفتاح المرور",
+        passkey: "مفتاح إثبات الحضور",
         password: "تغيير كلمة المرور",
       } as Record<string, string>
     )[route] ??
@@ -916,7 +913,7 @@ function Workspace({
         <div className="side-footer">
           <a href="#passkey">
             <ShieldCheck size={17} />
-            مفتاح المرور
+            مفتاح إثبات الحضور
           </a>
           <button onClick={() => void logout()}>
             <LogOut size={17} />
@@ -934,7 +931,9 @@ function Workspace({
             >
               <Menu size={22} />
             </button>
-            <span className="top-center">المركز</span>
+            <span className="top-center" title={center.name}>
+              {center.name}
+            </span>
             <ChevronLeft size={14} />
             <strong>{current}</strong>
           </div>
@@ -970,7 +969,7 @@ function Workspace({
                 <a href="#password">تغيير كلمة المرور</a>
                 <a href="#passkey">
                   <ShieldCheck size={16} />
-                  مفتاح المرور
+                  مفتاح إثبات الحضور
                 </a>
                 {user.platform && (
                   <a href="#platform">

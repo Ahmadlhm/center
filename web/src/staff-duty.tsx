@@ -70,13 +70,13 @@ export function StaffDuty({
     setPending(true);
     setError("");
     try {
-      const position = await captureLocation();
       const start = path + "/checkins/" + item.id;
       const query = "?date=" + item.date;
       const challenge = await api<{
         id: string;
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
       }>(start + "/options" + query, "POST");
+      const position = await captureLocation();
       const response = await startAuthentication({
         optionsJSON: challenge.options,
       });

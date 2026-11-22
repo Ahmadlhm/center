@@ -291,7 +291,7 @@ try {
     hourCycle: "h23",
   }).format(new Date());
   const end = time < "23:58" ? "23:59" : "23:59:59";
-  const meeting = await json(admin, "POST", api(main, "/education/meetings"), {
+  const schedule = {
     group: group.id,
     course: null,
     date,
@@ -302,7 +302,26 @@ try {
     lessonBy: teacherId,
     practiceBy: teacherId,
     replaces: null,
+  };
+  const tomorrow = new Date(new Date(date).getTime() + 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const upcoming = await json(admin, "POST", api(main, "/education/meetings"), {
+    ...schedule,
+    date: tomorrow,
   });
+  await mobile.goto("/#meeting/" + upcoming.id);
+  await mobile.getByText("يتاح إثبات الحضور أثناء الحصة المفتوحة وفي وقتها المجدول.").waitFor();
+  assert.equal(await mobile.getByRole("button", { name: "إثبات حضوري" }).count(), 0);
+  await expectResponse(
+    teacher,
+    "POST",
+    api(main, "/work/checkins/" + upcoming.id + "/options"),
+    undefined,
+    400,
+  );
+
+  const meeting = await json(admin, "POST", api(main, "/education/meetings"), schedule);
   await mobile.goto("/#meeting/" + meeting.id);
   await mobile.getByRole("button", { name: "إثبات حضوري" }).click();
   await mobile.getByText("تم إثبات حضورك").waitFor();
@@ -320,6 +339,18 @@ try {
     api(main, "/education/meetings/" + meeting.id),
   );
   assert.equal(saved.meeting.state, "final");
+  assert.equal(saved.attendanceWindow, null);
+  assert.equal(
+    await mobile.getByRole("button", { name: "إثبات حضوري" }).count(),
+    0,
+  );
+  await expectResponse(
+    teacher,
+    "POST",
+    api(main, "/work/checkins/" + meeting.id + "/options"),
+    undefined,
+    403,
+  );
   assert.equal(
     saved.meeting.marks.every((x) => x.status === "present"),
     true,
