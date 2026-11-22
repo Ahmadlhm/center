@@ -11,7 +11,7 @@ public record Account(Guid Id, string Name, string Email, string Password, bool 
 public record AuthenticatorDevice(string ProtectedKey, long LastStep, string[] RecoveryHashes);
 public record AuthenticatorAttempts(DateTimeOffset Until, int Count);
 public record Membership(Guid Account, Guid Center, string[] Roles, Guid[] Units, bool Active = true);
-public record Session(string Hash, Guid Account, DateTimeOffset Expires, bool Verified = false,
+public record Session(string Hash, Guid Account, DateTimeOffset Expires,
     string? Authenticator = null, string? PendingAuthenticatorKey = null);
 public record Request(Guid Id, string Name, string Contact, string Email, string State, DateTimeOffset Created, string? Reason = null, Guid? Center = null);
 public record CenterInfo(Guid Id, string Name, string TimeZone, bool Active = true, string? Logo = null, string? MapUrl = null);

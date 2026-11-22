@@ -357,12 +357,14 @@ select:disabled {
 .top-crumb {
   color: #748479;
   font-size: 12.5px;
+  min-width: 0;
 }
 .top-crumb strong {
   color: #2c4035;
   font-weight: 700;
 }
 .top-actions {
+  flex-shrink: 0;
   gap: 14px;
   color: #345748;
   position: relative;
@@ -1593,9 +1595,19 @@ dialog::backdrop {
     padding-inline: 12px;
   }
   .top-crumb {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 6px;
+  }
+  .top-crumb > button {
+    grid-row: span 2;
   }
   .top-center,
+  .top-crumb strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .top-center + svg {
     display: none;
   }

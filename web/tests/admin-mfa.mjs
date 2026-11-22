@@ -54,14 +54,13 @@ try {
     await page.getByLabel(label, { exact: true }).fill(code);
     await page.getByRole("button", { name: "تحقق", exact: true }).click();
   };
-  const open = page.getByRole("button", { name: "إنشاء مفتاح مرور" });
   await page.goto("/");
   await login("إدارة المنصة");
   const qr = page.getByAltText("رمز QR لإعداد تطبيق التحقق");
   await qr.waitFor();
   assert.match(await qr.getAttribute("src"), /^data:image\/png;base64,/);
   assert.equal((await context.request.get("/api/auth/catalog")).status(), 403);
-  assert.equal((await post("mfa/register/options")).status(), 403);
+  assert.equal((await post("mfa/register/options")).status(), 404);
   assert.equal(
     (
       await post("password/change", {
@@ -132,35 +131,31 @@ try {
   await logout();
   await page.reload();
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await login("مدير المركز");
-  await open.waitFor();
-  for (const viewport of [
-    { width: 1280, height: 800 },
-    { width: 390, height: 844 },
-  ]) {
-    await page.setViewportSize(viewport);
-    const card = await page
-      .getByRole("heading", { name: "إعداد مفتاح مرور للمدير" })
-      .locator("..")
-      .boundingBox();
-    assert(card);
-    assert(Math.abs(card.x + card.width / 2 - viewport.width / 2) <= 2);
-    assert(Math.abs(card.y + card.height / 2 - viewport.height / 2) <= 2);
-  }
-  assert.equal((await post("mfa/totp/setup")).status(), 403);
-  await open.click();
   await page.getByText(/أهلًا أحمد/).waitFor();
+  assert.equal((await post("mfa/totp/setup")).status(), 403);
+  const before = await (await context.request.get("/api/auth/me")).json();
+  assert.equal(before.requiresMfa, false);
+  const visibleName = page.locator(".top-center");
+  assert.equal((await visibleName.textContent()).trim(), before.centers[0].name);
+  const nameBox = await visibleName.boundingBox();
+  assert(nameBox && nameBox.width > 0 && nameBox.x >= 0);
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.goto("/#passkey");
+  await page.getByRole("button", { name: "إضافة مفتاح مرور" }).click();
+  await page.getByText("أُضيف مفتاح المرور").waitFor();
   await logout();
+  await page.goto("/");
   await page.reload();
   await login("مدير المركز");
-  await page.getByRole("button", { name: "تحقق الآن", exact: true }).click();
   await page.getByText(/أهلًا أحمد/).waitFor();
   const user = await (await context.request.get("/api/auth/me")).json();
   assert.equal(user.requiresMfa, false);
   assert.equal(user.hasPasskey, true);
   await logout();
   console.log(
-    "PASS: platform TOTP enrollment, replay prevention, recovery, center director WebAuthn and centered screens.",
+    "PASS: platform TOTP and recovery, password-only director sign-in, visible mobile center name, and in-app passkey setup.",
   );
 } finally {
   await browser.close();

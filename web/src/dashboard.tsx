@@ -157,16 +157,9 @@ export function Dashboard({ c }: { c: Context }) {
       {c.center.roles.includes("admin") && current.length === 0 && (
         <section className="card panel setup-start">
           <CardHead
-            title="???? ????? ??????"
-            desc="???? ?????? ????????? ?? ???? ????????? ????? ?????? ??????."
-          >
-            <div className="actions">
-              <Button onClick={() => go("settings")}>??????? ??????</Button>
-              <Button kind="outline" onClick={() => go("staff")}>
-                ???? ?????
-              </Button>
-            </div>
-          </CardHead>
+            title="لا توجد شعب نشطة بعد"
+            desc="يمكن لمدير المنصة إضافة الشعب وإسنادها إلى المعلّمين من إعدادات المركز."
+          />
         </section>
       )}
       <header className="dashboard-top">
@@ -188,7 +181,7 @@ export function Dashboard({ c }: { c: Context }) {
         <div className="hero-text">
           <div className="hero-label">
             <span />
-            لوحة المركز
+            {c.center.name}
           </div>
           <h1>أهلًا {c.user.name.split(" ")[0]}، طاب يومك</h1>
           <p>تابع حلقات اليوم، وحضور الطلاب، وإنجاز المعلّمين من مكان واحد.</p>

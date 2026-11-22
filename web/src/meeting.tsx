@@ -6,7 +6,6 @@ import {
   Check,
   Clock3,
   Fingerprint,
-  MapPin,
   Plus,
   Save,
   Trash2,
@@ -49,6 +48,7 @@ type MeetingData = {
   meeting: Meeting;
   students: { id: string; name: string; number: string }[];
   types: MeetingType[];
+  attendanceWindow: { from: string; to: string } | null;
 };
 export function MeetingDetail({ c, id }: { c: Context; id: string }) {
   const [data, setData] = useState<MeetingData>();
@@ -60,6 +60,7 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
   const [reading, setReading] = useState<string | null>(null);
   const [modal, setModal] = useState("");
   const [edit, setEdit] = useState(false);
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
     void api<MeetingData>(f(c, "/education/meetings/" + id))
       .then((r) => {
@@ -70,6 +71,12 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
       })
       .catch((e) => setError(message(e)));
   }, [id, c.center.id]);
+  useEffect(() => {
+    if (!data?.attendanceWindow || data.meeting.state !== "open") return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [data?.attendanceWindow, data?.meeting.state]);
   if (!data)
     return error ? (
       <ErrorBox>{error}</ErrorBox>
@@ -91,6 +98,12 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
   const check = c.work.checkIns.find(
     (x) => x.meeting === id && x.teacher === c.user.id,
   );
+  const attendanceWindow = data.attendanceWindow;
+  const canVerify =
+    m.state === "open" &&
+    attendanceWindow &&
+    now >= Date.parse(attendanceWindow.from) &&
+    now < Date.parse(attendanceWindow.to);
   const update = (id: string, patch: Partial<Mark>) =>
     setMarks((rows) =>
       rows.map((x) => (x.student === id ? { ...x, ...patch } : x)),
@@ -104,20 +117,11 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
     setError("");
     setBusy(true);
     try {
-      if (!navigator.geolocation)
-        throw new Error("الموقع غير متاح على هذا الجهاز.");
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          () =>
-            reject(new Error("تعذّر الحصول على الموقع. تأكّد من أذونات الموقع.")),
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-        ),
-      );
       const r = await api<{
         id: string;
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
       }>(query + "/options", "POST");
+      const pos = await captureLocation();
       const response = await startAuthentication({ optionsJSON: r.options });
       await api(query, "POST", {
         id: r.id,
@@ -211,7 +215,9 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
             <p>
               {check
                 ? label(check.state)
-                : "يثبت الحضور من داخل نطاق المركز خلال نافذة الدوام."}
+                : canVerify
+                  ? "أثبت حضورك وأنت داخل نطاق المركز."
+                  : "يتاح إثبات الحضور أثناء الحصة المفتوحة وفي وقتها المجدول."}
             </p>
           </div>
           <div className="actions">
@@ -220,10 +226,12 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                 <Button kind="outline" onClick={() => setModal("review")}>
                   طلب مراجعة
                 </Button>
-                <Button onClick={() => void checkIn()} disabled={busy}>
-                  <MapPin size={17} />
-                  إثبات حضوري
-                </Button>
+                {canVerify && (
+                  <Button onClick={() => void checkIn()} disabled={busy}>
+                    <Fingerprint size={17} />
+                    إثبات حضوري
+                  </Button>
+                )}
               </>
             ) : (
               <Badge value={check.state} />

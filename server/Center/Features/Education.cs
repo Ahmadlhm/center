@@ -191,7 +191,7 @@ public static class Education
                 Marks = meeting.Marks.Select(x => x with { Readings = [], Practice = null }).ToArray()
             };
             return new { meeting, students = people.Students.Where(x => meeting.Roster.Contains(x.Id)).Select(x => new { x.Id, x.Name, x.Number }),
-                types = Types(data, course, catalog) };
+                types = Types(data, course, catalog), attendanceWindow = Work.ClassAttendanceWindow(actor, info, meeting) };
         });
         g.MapPut("/meetings/{id:guid}", async (Guid center, Guid id, SaveMeeting input, State store, HttpContext http) =>
         {

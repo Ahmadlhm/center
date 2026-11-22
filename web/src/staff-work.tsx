@@ -430,8 +430,8 @@ export function PasskeyPage({ c }: { c: Context }) {
   return (
     <>
       <PageHead
-        title="مفتاح المرور"
-        desc="استخدم التحقق المحلي على هاتفك لإثبات حضورك."
+        title="مفتاح إثبات الحضور"
+        desc="أضف مفتاحًا على هذا الجهاز لتأكيد حضورك بالبصمة أو رمز قفل الجهاز."
       >
         <Button disabled={busy} onClick={() => void register()}>
           <Fingerprint size={18} />

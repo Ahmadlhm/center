@@ -101,12 +101,8 @@ public static class Identity
         Rules.Require(membership is not null && info is not null, "ليس لديك صلاحية في هذا المركز.", 403);
         return new(new(account.Id, account.Name, account.Platform, input.Center, membership!.Roles, membership.Units), info!);
     }
-    public static bool RequiresMfa(State store, Account account, IdentityData data) =>
-        store.RequireMfa && (account.Platform || data.Memberships.Any(x => x.Account == account.Id && x.Active && x.Roles.Contains("admin")
-            && data.Centers.Any(c => c.Id == x.Center && c.Active)));
-    private static bool NeedsMfa(State store, Account account, IdentityData data, Session? session) =>
-        RequiresMfa(store, account, data) &&
-        (account.Platform ? session?.Authenticator != PlatformAuthenticator.Verified : session is not { Verified: true });
+    private static bool NeedsMfa(State store, Account account, Session? session) =>
+        store.RequireMfa && account.Platform && session?.Authenticator != PlatformAuthenticator.Verified;
     private static Session? SessionWithToken(IdentityData data, string token)
     {
         var hash = Hash(token);
@@ -116,8 +112,7 @@ public static class Identity
     {
         var session = SessionWithToken(data, token);
         Rules.Require(!account.MustChangePassword, "غيّر كلمة المرور المؤقتة أولًا.", 403);
-        Rules.Require(!NeedsMfa(store, account, data, session), account.Platform ?
-            "أكمل التحقق برمز تطبيق Google Authenticator." : "أكمل التحقق بمفتاح المرور.", 403);
+        Rules.Require(!NeedsMfa(store, account, session), "أكمل التحقق برمز تطبيق Google Authenticator.", 403);
     }
     public static async Task AccountReady(State store, HttpContext http)
     {
@@ -170,7 +165,7 @@ public static class Identity
             return new
             {
                 account.Id, account.Name, account.Email, account.Platform, account.MustChangePassword,
-                requiresMfa = NeedsMfa(store, account, data, session),
+                requiresMfa = NeedsMfa(store, account, session),
                 hasAuthenticator = account.Authenticator != null,
                 hasPasskey = data.Credentials.Any(x => x.Account == account.Id),
                 centers = from m in data.Memberships

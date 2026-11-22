@@ -129,26 +129,32 @@ public static class Work
     {
         var people = await store.Read<PeopleData>(Module.People, actor.Center);
         Rule rule;
-        DateTimeOffset at;
+        var now = DateTimeOffset.UtcNow;
         if (date is DateOnly day)
         {
             var shift = await StaffDuties.Ensure(store, actor.Center, id, actor.Id, day);
             rule = people.At(day);
-            at = Rules.Instant(day, shift.From, info.TimeZone);
+            var at = Rules.Instant(day, shift.From, info.TimeZone);
+            Rules.Require(now >= at.AddMinutes(-rule.OpenMinutes) && now <= at.AddMinutes(rule.LateMinutes), "أنت خارج نافذة إثبات الدوام.");
         }
         else
         {
             var education = await store.Read<EducationData>(Module.Education, actor.Center);
             var meeting = Rules.Found(education.Meetings.Find(x => x.Id == id));
-            Rules.Require(actor.Teacher && meeting.Teachers.Contains(actor.Id) && meeting.State != "cancelled", "اللقاء خارج تكليفك.", 403);
+            var window = ClassAttendanceWindow(actor, info, meeting);
+            Rules.Require(window is not null, "إثبات حضور الحصة متاح للمعلّم المكلّف بحصة مفتوحة فقط.", 403);
+            Rules.Require(now >= window!.From && now < window.To, "إثبات حضور الحصة متاح خلال وقتها المجدول.");
             rule = people.At(meeting.Date);
-            at = Rules.Instant(meeting.Date, meeting.From, info.TimeZone);
         }
         Rules.Require(rule.Latitude.HasValue && rule.Longitude.HasValue, "يحدد مدير المنصة موقع إثبات الدوام أولًا.");
-        var now = DateTimeOffset.UtcNow;
-        Rules.Require(now >= at.AddMinutes(-rule.OpenMinutes) && now <= at.AddMinutes(rule.LateMinutes), "أنت خارج نافذة إثبات الحضور.");
         return rule;
     }
+    public static AttendanceWindow? ClassAttendanceWindow(Actor actor, CenterInfo center, Meeting meeting) =>
+        actor.Teacher && meeting.State == "open" && meeting.Teachers.Contains(actor.Id)
+            ? new(Rules.Instant(meeting.Date, meeting.From, center.TimeZone), Rules.Instant(meeting.Date, meeting.To, center.TimeZone))
+            : null;
+
+    public record AttendanceWindow(DateTimeOffset From, DateTimeOffset To);
     private static double Distance(double lat1, double lon1, double lat2, double lon2)
     {
         const double radians = Math.PI / 180;
