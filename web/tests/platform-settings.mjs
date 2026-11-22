@@ -341,6 +341,31 @@ try {
     .filter({ has: ui.getByText("اختر مركزًا", { exact: true }) })
     .locator("select")
     .selectOption(center.split("/").at(-1));
+  await ui.getByRole("button", { name: "قواعد التشغيل", exact: true }).click();
+  await ui.getByRole("button", { name: "ضبط القواعد", exact: true }).click();
+  const windowField = ui.getByLabel("نافذة الإثبات بعد الموعد بالدقائق");
+  await windowField.fill("320");
+  await ui.getByRole("button", { name: "حفظ", exact: true }).click();
+  const activeRule = ui.getByRole("row").filter({ hasText: "سارية" });
+  await activeRule.getByText("320 دقيقة", { exact: true }).waitFor();
+  const previous = (await call(platform, "GET", center + "/people/configuration")).rule;
+
+  await activeRule.getByRole("button", { name: "تعديل", exact: true }).click();
+  assert.equal(await windowField.inputValue(), "320");
+  assert.equal(await ui.getByLabel("تاريخ السريان").isEditable(), false);
+  await windowField.fill("420");
+  await ui.getByRole("button", { name: "حفظ", exact: true }).click();
+  await activeRule.getByText("420 دقيقة", { exact: true }).waitFor();
+  assert.equal(
+    await ui.getByRole("row").filter({ hasText: "320 دقيقة" }).count(),
+    0,
+  );
+  const revised = await call(platform, "GET", center + "/people/configuration");
+  assert.equal(revised.rule.effective, previous.effective);
+  assert.equal(revised.rule.lateMinutes, 420);
+  assert.notEqual(revised.rule.version, previous.version);
+  assert(revised.rules.some((entry) => entry.version === previous.version));
+
   await ui.getByRole("button", { name: "بيانات المركز", exact: true }).click();
   await ui
     .getByRole("button", { name: "تعديل بيانات المركز", exact: true })
@@ -350,7 +375,7 @@ try {
     profile.mapUrl,
   );
   console.log(
-    "PASS: fixed Mushaf references, editable curricula, platform-only settings, temporary passwords, password changes, and director passkey attendance.",
+    "PASS: fixed Mushaf references, editable curricula, platform-only settings, rule revisions, temporary passwords, password changes, and director passkey attendance.",
   );
 } finally {
   await browser?.close();

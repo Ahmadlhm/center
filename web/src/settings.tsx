@@ -6,12 +6,14 @@ import {
   api,
   date,
   fmt,
+  latestRulesByDate,
   roleLabel,
   uid,
   unitPath,
   type Context,
   type MeetingType,
   type Period,
+  type Rule,
   type Staff,
   type Unit,
 } from "./model";
@@ -45,6 +47,7 @@ export function Setup({
   const [modal, setModal] = useState("");
   const [unit, setUnit] = useState<Unit>();
   const [period, setPeriod] = useState<Period>();
+  const [selectedRule, setSelectedRule] = useState<Rule>();
   return (
     <>
       <PageHead
@@ -156,7 +159,12 @@ export function Setup({
         <>
           <section className="card">
             <CardHead title="قواعد التشغيل السارية">
-              <Button onClick={() => setModal("rule")}>
+              <Button
+                onClick={() => {
+                  setSelectedRule(undefined);
+                  setModal("rule");
+                }}
+              >
                 <Settings2 size={16} />
                 ضبط القواعد
               </Button>
@@ -176,6 +184,12 @@ export function Setup({
                     : fmt(c.people.rule.radius) + " متر"}
                 </b>
               </span>
+              <span>
+                إثبات الدوام{" "}
+                <b>{fmt(c.people.rule.openMinutes)} دقيقة قبل البداية</b>
+                {" · "}
+                <b>{fmt(c.people.rule.lateMinutes)} دقيقة بعد البداية</b>
+              </span>
             </div>
             {c.people.rules.length > 0 && (
               <Table
@@ -184,22 +198,42 @@ export function Setup({
                   "الحد الأقصى للشعب",
                   "مهلة الرصد",
                   "يدخل الغياب بعذر",
+                  "نافذة الإثبات بعد بداية الدوام",
+                  "",
                 ]}
               >
-                {[...c.people.rules]
-                  .sort((a, b) => b.effective.localeCompare(a.effective))
-                  .map((r, i) => (
-                    <tr key={i}>
-                      <td>
-                        {r.effective.startsWith("0001")
-                          ? "الإعداد الأولي"
-                          : date(r.effective)}
-                      </td>
-                      <td>{r.groupLimit}</td>
-                      <td>{r.closeHours} ساعة</td>
-                      <td>{r.countExcused ? "نعم" : "لا"}</td>
-                    </tr>
-                  ))}
+                {latestRulesByDate(c.people.rules).map((r) => (
+                  <tr key={r.effective}>
+                    <td>
+                      {r.effective.startsWith("0001")
+                        ? "الإعداد الأولي"
+                        : date(r.effective)}
+                      {r.effective === c.people.rule.effective && (
+                        <>
+                          {" "}
+                          <Badge value="active" text="سارية" />
+                        </>
+                      )}
+                    </td>
+                    <td>{r.groupLimit}</td>
+                    <td>{r.closeHours} ساعة</td>
+                    <td>{r.countExcused ? "نعم" : "لا"}</td>
+                    <td>{fmt(r.lateMinutes)} دقيقة</td>
+                    <td>
+                      {r.effective >= c.people.today && (
+                        <Button
+                          kind="outline"
+                          onClick={() => {
+                            setSelectedRule(r);
+                            setModal("rule");
+                          }}
+                        >
+                          تعديل
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </Table>
             )}
           </section>
@@ -294,7 +328,9 @@ export function Setup({
           </div>
         </Dialog>
       )}
-      {modal === "rule" && <RuleForm c={c} close={() => setModal("")} />}
+      {modal === "rule" && (
+        <RuleForm c={c} selected={selectedRule} close={() => setModal("")} />
+      )}
       {modal === "policy" && (
         <Dialog
           title="لائحة المركز"
@@ -459,18 +495,27 @@ function UnitForm({
     </Dialog>
   );
 }
-function RuleForm({ c, close }: { c: Context; close: () => void }) {
-  const { rule, today } = c.people;
+function RuleForm({
+  c,
+  selected,
+  close,
+}: {
+  c: Context;
+  selected?: Rule;
+  close: () => void;
+}) {
+  const { today } = c.people;
+  const rule = selected ?? c.people.rule;
   const [lat, setLat] = useState(rule.latitude?.toString() ?? "");
   const [lon, setLon] = useState(rule.longitude?.toString() ?? "");
   return (
     <Dialog
-      title="قواعد التشغيل"
+      title={selected ? "تعديل قواعد التشغيل" : "ضبط قواعد التشغيل"}
       close={close}
       wide
       submit={async (form) => {
         await api(f(c, "/people/rules"), "POST", {
-          effective: val(form, "effective"),
+          effective: selected?.effective ?? val(form, "effective"),
           groupLimit: num(form, "groupLimit"),
           countExcused: form.has("countExcused"),
           closeHours: num(form, "closeHours"),
@@ -499,7 +544,8 @@ function RuleForm({ c, close }: { c: Context; close: () => void }) {
           <input
             name="effective"
             type="date"
-            defaultValue={today}
+            defaultValue={selected?.effective ?? today}
+            readOnly={selected !== undefined}
             min={today}
             required
           />
