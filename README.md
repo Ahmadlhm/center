@@ -86,14 +86,17 @@ node tests/smoke.mjs
 
 على خادم Hetzner تفحص `quran-center-deploy.timer` فرع `main` عبر Deploy Key للقراءة فقط كل 25 ثانية تقريبًا. يبدأ النشر بعد تغيير الفرع ويحتفظ بالإصدار السابق لاستعادته عند فشل التحقق. يمكن متابعة آخر نتيجة باستخدام `journalctl -u quran-center-deploy.service -n 30`.
 
-## التطبيقات المحمولة
+## الاختبار الداخلي على الهاتف
 
-مجلدا `web/android` و`web/ios` يحتويان مشروعي Capacitor. تستخدم النسخة الداخلية عنوان HTTPS الخاص بالمنصة في `CENTER_APP_URL`، حتى تعمل واجهة الموظف على نفس نطاق الهوية ومفاتيح المرور. الموقع من إضافة Geolocation الأصلية.
+مشروعا Capacitor داخل `web/android` و`web/ios` يفتحان `https://centers.men` افتراضيًا. يمكن ضبط `CENTER_APP_URL` على نطاق اختبار HTTPS. يحتاج التطبيق اتصالًا بالإنترنت ويستخدم بيانات البيئة التي يتصل بها. تُطلب صلاحية الموقع عند إثبات الحضور.
 
-- على Android اضبط شهادة التوقيع وانشر محتوى `deploy/mobile/assetlinks.example.json` بعد تعبئته على النطاق في `/.well-known/assetlinks.json`. افتح المشروع في Android Studio بعد `npm run mobile`.
-- على iOS اضبط `CENTER_APP_DOMAIN` في إعدادات Xcode على اسم النطاق، وأكمل معرف الفريق والتوقيع. انشر ملف تعريف النطاق من `deploy/mobile/apple-app-site-association.example` في `/.well-known/apple-app-site-association`. يتطلب بناء iOS نظام macOS وXcode.
+**Android** · جهّز JDK 21 وAndroid SDK بمنصة API 36. من مجلد `web` شغّل `npm ci` ثم `npm run build` و`npx cap sync android`. افتح المشروع في Android Studio أو شغّل `gradlew.bat assembleRelease` داخل `android` على Windows. وقّع ملف APK بمفتاح التوزيع الداخلي نفسه لكل تحديث وثبّت الحزمة مباشرة على أجهزة الاختبار. ضع البصمة العامة لشهادة التوقيع في `CENTER_ANDROID_CERT_SHA256` في بيئة الإنتاج. يخدم النظام ملف `/.well-known/assetlinks.json` من البصمة نفسها التي يقبلها للتحقق بمفتاح المرور من التطبيق. [توقيع APK](https://developer.android.com/tools/apksigner) · [مفاتيح المرور داخل WebView](https://developer.android.com/identity/passkeys/architecture)
 
-تسبق تجربة مفاتيح المرور والموقع على هواتف حقيقية وتوقيع الحزم مرحلة توزيع التطبيقات. [متطلبات WebAuthn في Android WebView](https://developer.android.com/reference/androidx/webkit/WebSettingsCompat) · [إعداد مفاتيح المرور في WKWebView](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys/)
+**iPhone من Safari** · افتح `https://centers.men`، واختر «مشاركة» ثم «إضافة إلى الشاشة الرئيسية» و«فتح كتطبيق ويب». يمكن بدء اختبار الواجهة والحضور على النطاق نفسه. [خطوات Apple لإضافة تطبيق ويب](https://support.apple.com/guide/iphone/turn-a-website-into-an-app-iphea86e5236/ios)
+
+**iOS الأصلي** · على Mac مع Xcode شغّل `npm ci` ثم `npm run build` و`npx cap sync ios` داخل `web`. افتح المشروع بـ `npx cap open ios` وحدّد فريق التوقيع. لاختبار مفاتيح المرور اربط App ID بميزة Associated Domains وضع Team ID العام في `CENTER_IOS_TEAM_ID` في بيئة الإنتاج. يخدم النظام ملف `/.well-known/apple-app-site-association` عند ضبط القيمة. إذا استخدمت نطاق اختبار فطابق إعداد Xcode `CENTER_APP_DOMAIN` مع اسم مضيف `CENTER_APP_URL`. للتوزيع على أجهزة محدّدة استخدم Ad Hoc وسجّل الأجهزة لدى Apple. [إعداد النطاقات المرتبطة](https://developer.apple.com/documentation/xcode/supporting-associated-domains) · [التثبيت على أجهزة مسجلة](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)
+
+على جهاز الاختبار تأكّد من الدخول بالبريد وكلمة المرور، وإضافة مفتاح إثبات الحضور من الحساب، وإثبات حضور حصة مفتوحة داخل وقتها المجدول ومن داخل نطاق المركز.
 
 ## حدود الإصدار الأول
 
