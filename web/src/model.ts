@@ -37,6 +37,7 @@ export type Enrollment = {
   end: string | null;
 };
 export type Rule = {
+  version: string;
   effective: string;
   groupLimit: number;
   countExcused: boolean;
@@ -49,6 +50,10 @@ export type Rule = {
   accuracy: number;
   allowAttendanceReview: boolean;
 };
+export function latestRulesByDate(rules: Rule[]) {
+  return [...new Map(rules.map((rule) => [rule.effective, rule])).values()]
+    .sort((a, b) => b.effective.localeCompare(a.effective));
+}
 export type People = {
   units: Unit[];
   groups: Group[];
@@ -69,6 +74,7 @@ export type Mark = {
   note: string | null;
 };
 export type Meeting = {
+  ruleVersion?: string;
   id: Key;
   group: Key | null;
   course: Key | null;

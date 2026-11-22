@@ -26,6 +26,7 @@ import {
   fmt,
   go,
   groupOf,
+  latestRulesByDate,
   offset,
   teacherOf,
   type Context,
@@ -33,18 +34,16 @@ import {
 import { Badge, Button, CardHead, Empty, Table } from "./ui";
 
 function rate(c: Context, from: string, end: string) {
+  const currentByDate = latestRulesByDate(c.people.rules);
   const rows = c.education.meetings
     .filter((m) => m.date >= from && m.date <= end && m.state !== "cancelled")
-    .flatMap((m) =>
-      m.marks.map((mark) => ({
-        mark,
-        rule:
-          c.people.rules
-            .filter((x) => x.effective <= m.date)
-            .sort((a, b) => b.effective.localeCompare(a.effective))[0] ??
-          c.people.rule,
-      })),
-    );
+    .flatMap((meeting) => {
+      const rule =
+        c.people.rules.find((x) => x.version === meeting.ruleVersion) ??
+        currentByDate.find((x) => x.effective <= meeting.date) ??
+        c.people.rule;
+      return meeting.marks.map((mark) => ({ mark, rule }));
+    });
   const yes = rows.filter((x) => x.mark.status === "present").length;
   const all = rows.filter(
     (x) =>
