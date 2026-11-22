@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import { ClipboardCheck, Fingerprint, ShieldCheck, Trash2 } from "lucide-react";
+import { PasskeyAction } from "./passkey-action";
 import {
   api,
   clock,
@@ -394,7 +395,6 @@ export function FollowTeachers({ c }: { c: Context }) {
 export function PasskeyPage({ c }: { c: Context }) {
   const [rows, setRows] = useState<{ id: string }[]>([]);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [revoke, setRevoke] = useState("");
   const path = f(c, "/identity/passkeys");
   const load = () =>
@@ -404,39 +404,36 @@ export function PasskeyPage({ c }: { c: Context }) {
   useEffect(() => {
     void load();
   }, [path]);
-  async function register() {
-    setBusy(true);
-    setError("");
-    try {
-      const options = await api<{
-        id: string;
-        options: Parameters<typeof startRegistration>[0]["optionsJSON"];
-      }>(path + "/register/options", "POST");
-      const response = await startRegistration({
-        optionsJSON: options.options,
-      });
-      await api(path + "/register/complete", "POST", {
-        id: options.id,
-        response,
-      });
-      await load();
-      c.notify("أُضيف مفتاح المرور");
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
     <>
       <PageHead
         title="مفتاح إثبات الحضور"
         desc="أضف مفتاحًا على هذا الجهاز لتأكيد حضورك بالبصمة أو رمز قفل الجهاز."
       >
-        <Button disabled={busy} onClick={() => void register()}>
+        <PasskeyAction
+          title="إعداد مفتاح على هذا الجهاز"
+          description="احفظ مفتاحًا لهذا الموقع لتأكيد حضورك من هذا الجهاز. على iPhone اختر حفظه في تطبيق كلمات السر عند ظهور نافذة الجهاز."
+          prepare={async () => {
+            const challenge = await api<{
+              id: string;
+              options: Parameters<typeof startRegistration>[0]["optionsJSON"];
+            }>(path + "/register/options", "POST");
+            return async () => {
+              const response = await startRegistration({
+                optionsJSON: challenge.options,
+              });
+              await api(path + "/register/complete", "POST", {
+                id: challenge.id,
+                response,
+              });
+              await load();
+              c.notify("أُضيف مفتاح المرور");
+            };
+          }}
+        >
           <Fingerprint size={18} />
           إضافة مفتاح مرور
-        </Button>
+        </PasskeyAction>
       </PageHead>
       {error && <ErrorBox>{error}</ErrorBox>}
       <div className="card">

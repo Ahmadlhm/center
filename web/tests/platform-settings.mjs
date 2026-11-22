@@ -290,9 +290,26 @@ try {
   });
   await page.goto("/#passkey");
   await page.getByRole("button", { name: "إضافة مفتاح مرور" }).click();
+  await page.getByRole("button", { name: "متابعة التحقق" }).click();
   await page.getByText("أُضيف مفتاح المرور").waitFor();
   await page.goto("/#duty");
+  await page.evaluate(() => {
+    const get = navigator.credentials.get.bind(navigator.credentials);
+    navigator.credentials.get = (options) => {
+      navigator.credentials.get = get;
+      return Promise.reject(new DOMException("No local passkey selected", "NotAllowedError"));
+    };
+  });
   await page.getByRole("button", { name: "إثبات الحضور", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "تأكيد الحضور" });
+  await confirm.getByRole("button", { name: "متابعة التحقق" }).click();
+  await confirm.getByText(/لم يكتمل التحقق على هذا الجهاز/).waitFor();
+  assert.equal(
+    await confirm.getByRole("link", { name: "إعداد مفتاح على هذا الجهاز" }).getAttribute("href"),
+    "#passkey",
+  );
+  await confirm.getByRole("button", { name: "إعادة المحاولة" }).click();
+  await confirm.getByRole("button", { name: "متابعة التحقق" }).click();
   await page.getByText("أُثبت الدوام", { exact: true }).waitFor();
   assert.equal(
     (await call(manager, "GET", center + "/work/duties")).items.find(

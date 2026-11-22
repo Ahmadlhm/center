@@ -144,6 +144,7 @@ try {
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.goto("/#passkey");
   await page.getByRole("button", { name: "إضافة مفتاح مرور" }).click();
+  await page.getByRole("button", { name: "متابعة التحقق" }).click();
   await page.getByText("أُضيف مفتاح المرور").waitFor();
   await logout();
   await page.goto("/");

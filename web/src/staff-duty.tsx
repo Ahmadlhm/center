@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { startAuthentication } from "@simplewebauthn/browser";
 import { Fingerprint, MapPin } from "lucide-react";
-import { captureLocation } from "./device";
+import { AttendanceProof } from "./passkey-action";
 import {
   api,
   base,
@@ -54,7 +53,6 @@ export function StaffDuty({
   const [date, setDate] = useState(c.people.today);
   const [list, setList] = useState<DutyList>();
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
   const [selection, setSelection] = useState<{
     item: Duty;
     action: "shift" | "request" | "review";
@@ -66,36 +64,6 @@ export function StaffDuty({
   useEffect(() => {
     void refresh().catch((e) => setError(message(e)));
   }, [c.center.id, date]);
-  async function check(item: Duty) {
-    setPending(true);
-    setError("");
-    try {
-      const start = path + "/checkins/" + item.id;
-      const query = "?date=" + item.date;
-      const challenge = await api<{
-        id: string;
-        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-      }>(start + "/options" + query, "POST");
-      const position = await captureLocation();
-      const response = await startAuthentication({
-        optionsJSON: challenge.options,
-      });
-      await api(start + query, "POST", {
-        id: challenge.id,
-        response,
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-        captured: new Date(position.timestamp).toISOString(),
-      });
-      await refresh();
-      c.notify("أُثبت الدوام");
-    } catch (error) {
-      setError(message(error));
-    } finally {
-      setPending(false);
-    }
-  }
   const canReview = (item: Duty) =>
     configuration ||
     (c.center.roles.includes("admin") && c.user.id !== item.employee);
@@ -112,7 +80,7 @@ export function StaffDuty({
         {!configuration && (
           <a className="btn outline" href="#passkey">
             <Fingerprint size={16} />
-            مفتاح المرور
+            مفتاح إثبات الحضور
           </a>
         )}
         {!configuration && list?.mapUrl && (
@@ -170,13 +138,17 @@ export function StaffDuty({
                       item.scheduled &&
                       item.date === c.people.today &&
                       item.checkIn?.state !== "verified" && (
-                        <Button
-                          disabled={pending}
-                          onClick={() => void check(item)}
+                        <AttendanceProof
+                          endpoint={path + "/checkins/" + item.id}
+                          date={item.date}
+                          verified={async () => {
+                            await refresh();
+                            c.notify("أُثبت الدوام");
+                          }}
                         >
                           <Fingerprint size={16} />
                           إثبات الحضور
-                        </Button>
+                        </AttendanceProof>
                       )}
                     {!configuration &&
                       item.employee === c.user.id &&
