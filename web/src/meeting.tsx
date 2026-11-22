@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { captureLocation } from "./device";
-import { startAuthentication } from "@simplewebauthn/browser";
+import { AttendanceProof } from "./passkey-action";
 import {
   BookOpen,
   Check,
@@ -113,32 +112,6 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
     : (c.education.courses.find((x) => x.id === m.course)?.name ??
       "لقاء الدورة");
   const query = f(c, "/work/checkins/" + id);
-  async function checkIn() {
-    setError("");
-    setBusy(true);
-    try {
-      const r = await api<{
-        id: string;
-        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-      }>(query + "/options", "POST");
-      const pos = await captureLocation();
-      const response = await startAuthentication({ optionsJSON: r.options });
-      await api(query, "POST", {
-        id: r.id,
-        response,
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        captured: new Date(pos.timestamp).toISOString(),
-      });
-      await c.refresh();
-      c.notify("تم إثبات حضورك");
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   async function save(finalize: boolean, reason?: string) {
     setBusy(true);
     setError("");
@@ -227,10 +200,17 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                   طلب مراجعة
                 </Button>
                 {canVerify && (
-                  <Button onClick={() => void checkIn()} disabled={busy}>
+                  <AttendanceProof
+                    endpoint={query}
+                    disabled={busy}
+                    verified={async () => {
+                      await c.refresh();
+                      c.notify("تم إثبات حضورك");
+                    }}
+                  >
                     <Fingerprint size={17} />
                     إثبات حضوري
-                  </Button>
+                  </AttendanceProof>
                 )}
               </>
             ) : (

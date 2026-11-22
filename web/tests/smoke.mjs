@@ -252,6 +252,22 @@ try {
     permissions: ["geolocation"],
   });
   const mobile = await phone.newPage();
+  await mobile.addInitScript(() => {
+    let requestingLocation = false;
+    const capture = navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);
+    navigator.geolocation.getCurrentPosition = (...args) => {
+      requestingLocation = true;
+      return capture(...args);
+    };
+    for (const method of ["get", "create"]) {
+      const request = navigator.credentials[method].bind(navigator.credentials);
+      navigator.credentials[method] = (...args) => {
+        if (!navigator.userActivation.isActive || requestingLocation)
+          throw new DOMException("Credential request must begin from a tap before location", "NotAllowedError");
+        return request(...args);
+      };
+    }
+  });
   await mobile.goto("/");
   await mobile.getByRole("button", { name: "معلّم", exact: true }).click();
   await mobile.getByRole("heading", { name: "شُعَبي", exact: true }).waitFor();
@@ -282,6 +298,7 @@ try {
   });
   await mobile.goto("/#passkey");
   await mobile.getByRole("button", { name: "إضافة مفتاح مرور" }).click();
+  await mobile.getByRole("button", { name: "متابعة التحقق" }).click();
   await mobile.getByText("أُضيف مفتاح المرور").waitFor();
 
   const time = new Intl.DateTimeFormat("en-GB", {
@@ -324,6 +341,9 @@ try {
   const meeting = await json(admin, "POST", api(main, "/education/meetings"), schedule);
   await mobile.goto("/#meeting/" + meeting.id);
   await mobile.getByRole("button", { name: "إثبات حضوري" }).click();
+  const confirmation = mobile.getByRole("dialog", { name: "تأكيد الحضور" });
+  await confirmation.getByRole("link", { name: "إعداد مفتاح على هذا الجهاز" }).waitFor();
+  await confirmation.getByRole("button", { name: "متابعة التحقق" }).click();
   await mobile.getByText("تم إثبات حضورك").waitFor();
   await mobile
     .getByRole("button", { name: "تحديد غير المرصودين كحاضرين" })

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type FormEvent,
@@ -309,6 +310,7 @@ export function Dialog({
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const headingId = useId();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -332,6 +334,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={headingId}
       className={wide ? "large" : ""}
       onCancel={(e) => {
         if (e.target !== e.currentTarget) return;
@@ -340,7 +343,7 @@ export function Dialog({
       }}
     >
       <div className="dialog-head">
-        <h2>{title}</h2>
+        <h2 id={headingId}>{title}</h2>
         <button
           className="icon-button"
           aria-label="إغلاق"
