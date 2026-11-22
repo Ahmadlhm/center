@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>NSLocationWhenInUseUsageDescription</key>
-    <string>?????? ??????? ????? ??? ??? ????? ?????? ?? ??????.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>يُستخدم موقعك عند إثبات حضورك للتحقق من وجودك داخل نطاق المركز.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>تأكيد هويتك عند إثبات الحضور.</string>
     <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

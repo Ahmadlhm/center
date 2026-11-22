@@ -14,6 +14,7 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.W
 builder.Logging.AddFilter("System.Net.Http.HttpClient.internal", LogLevel.Warning);
 var config = builder.Configuration;
 var mode = config["CENTER_SERVICE"] ?? "all";
+var mobileLinks = new MobileLinks(config);
 var origin = new Uri(config["CENTER_ORIGIN"] ?? "http://localhost:5173");
 if (mode != "all" && (config["CENTER_INTERNAL_KEY"]?.Length ?? 0) < 32)
     throw new InvalidOperationException("CENTER_INTERNAL_KEY must have at least 32 characters.");
@@ -42,9 +43,9 @@ if (mode is "identity" or "all")
 if (mode is "education" or "all") builder.Services.AddHostedService<MeetingPlanner>();
 builder.Services.AddSingleton<IFido2>(_ => new Fido2(new Fido2Configuration
 {
-    ServerDomain = origin.Host,
-    ServerName = "Quran Centers",
-    Origins = new HashSet<string>([origin.GetLeftPart(UriPartial.Authority)])
+    RPID = origin.Host,
+    RPName = "Quran Centers",
+    Origins = mobileLinks.PasskeyOrigins(origin.GetLeftPart(UriPartial.Authority))
 }));
 builder.Services.AddRateLimiter(options =>
 {
@@ -90,6 +91,7 @@ app.Use(async (ctx, next) =>
 });
 app.UseRateLimiter();
 app.MapGet("/health", () => new { status = "ok", service = mode });
+if (mode is "gateway" or "all") mobileLinks.Map(app);
 if (mode == "gateway")
 {
     app.Map("/api/{**path}", async (HttpContext ctx, IHttpClientFactory factory) =>
