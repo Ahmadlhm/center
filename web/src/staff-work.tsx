@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { registerDevicePasskey, usesAndroidPasskeys, type RegistrationOptions } from "./device-passkeys";
+import {
+  androidBiometricsAvailable,
+  devicePasskeyError,
+  isAndroidApp,
+  openAndroidBiometricSettings,
+  prepareDeviceEnrollment,
+  revokeAttendanceDevice,
+} from "./device-passkeys";
 import { ClipboardCheck, Fingerprint, ShieldCheck, Trash2 } from "lucide-react";
 import { PasskeyAction } from "./passkey-action";
 import {
@@ -396,7 +403,8 @@ export function PasskeyPage({ c }: { c: Context }) {
   const [rows, setRows] = useState<{ id: string }[]>([]);
   const [error, setError] = useState("");
   const [revoke, setRevoke] = useState("");
-  const path = f(c, "/identity/passkeys");
+  const android = isAndroidApp();
+  const path = f(c, android ? "/identity/android-attendance" : "/identity/passkeys");
   const load = () =>
     api<{ id: string }[]>(path)
       .then(setRows)
@@ -407,39 +415,42 @@ export function PasskeyPage({ c }: { c: Context }) {
   return (
     <>
       <PageHead
-        title="مفتاح إثبات الحضور"
-        desc="أضف مفتاحًا على هذا الجهاز لتأكيد حضورك بالبصمة أو رمز قفل الجهاز."
+        title={android ? "بصمة إثبات الحضور" : "مفتاح إثبات الحضور"}
+        desc={android
+          ? "فعّل بصمة الحضور مرة واحدة لكل هاتف تستخدمه."
+          : "أضف مفتاحًا على هذا الجهاز لتأكيد حضورك بالبصمة أو رمز قفل الجهاز."}
       >
         <PasskeyAction
-          title="إعداد مفتاح على هذا الجهاز"
-          description={usesAndroidPasskeys()
-            ? "احفظ مفتاح الحضور من نافذة Android. فعّل بصمة الإصبع وقفل الشاشة من إعدادات الجهاز قبل المتابعة."
+          title={android ? "تفعيل بصمة الحضور" : "إعداد مفتاح على هذا الجهاز"}
+          description={android
+            ? "تابع لتأكيد بصمتك في نافذة Android. إذا لم تسجّل بصمة إصبع، أضفها من إعدادات الهاتف."
             : "احفظ مفتاح الحضور على هذا الجهاز عند ظهور نافذة الحفظ."}
           prepare={async () => {
-            const challenge = await api<{
-              id: string;
-              options: RegistrationOptions;
-            }>(path + "/register/options", "POST");
+            const enroll = await prepareDeviceEnrollment(path);
             return async () => {
-              const response = await registerDevicePasskey(challenge.options);
-              await api(path + "/register/complete", "POST", {
-                id: challenge.id,
-                response,
-              });
+              await enroll();
               await load();
-              c.notify("أُضيف مفتاح المرور");
+              c.notify(android ? "تم تفعيل بصمة الحضور" : "أُضيف مفتاح المرور");
             };
           }}
         >
           <Fingerprint size={18} />
-          إضافة مفتاح مرور
+          {android ? "تفعيل البصمة" : "إضافة مفتاح مرور"}
         </PasskeyAction>
+        {androidBiometricsAvailable() && (
+          <Button kind="outline" onClick={() => {
+            setError("");
+            void openAndroidBiometricSettings().catch((failure) => setError(devicePasskeyError(failure)));
+          }}>
+            إعدادات البصمة على الهاتف
+          </Button>
+        )}
       </PageHead>
       {error && <ErrorBox>{error}</ErrorBox>}
       <div className="card">
         <CardHead
-          title="مفاتيح حسابك"
-          desc="يطلب الجهاز بصمة أو رمز قفله عند التحقق."
+          title={android ? "أجهزة Android المرتبطة بحسابك" : "مفاتيح حسابك"}
+          desc={android ? undefined : "يطلب الجهاز بصمة أو رمز قفله عند التحقق."}
         />
         <div className="list-stack">
           {rows.map((row, i) => (
@@ -448,7 +459,7 @@ export function PasskeyPage({ c }: { c: Context }) {
                 <span className="mini-icon">
                   <ShieldCheck size={16} />
                 </span>
-                مفتاح {i + 1} · <bdi>{row.id.slice(0, 8)}</bdi>
+                {android ? "جهاز" : "مفتاح"} {i + 1} · <bdi>{row.id.slice(0, 8)}</bdi>
               </span>
               <Button kind="outline" onClick={() => setRevoke(row.id)}>
                 <Trash2 size={15} />
@@ -457,19 +468,21 @@ export function PasskeyPage({ c }: { c: Context }) {
             </div>
           ))}
         </div>
-        {!rows.length && <Empty title="لم تضف مفتاح مرور بعد" />}
+        {!rows.length && <Empty title={android ? "لم تُفعّل البصمة على أي هاتف بعد" : "لم تضف مفتاح مرور بعد"} />}
       </div>
       {revoke && (
         <Dialog
-          title="إبطال مفتاح المرور"
+          title={android ? "إبطال بصمة هذا الجهاز" : "إبطال مفتاح المرور"}
           close={() => setRevoke("")}
           confirm="إبطال"
           submit={async () => {
-            await api(path + "?id=" + encodeURIComponent(revoke), "DELETE");
+            await revokeAttendanceDevice(path, revoke);
             await load();
           }}
         >
-          <p>تحتاج مفتاح مرور صالحًا لإثبات الحضور في اللقاءات القادمة.</p>
+          <p>{android
+            ? "يلزم تفعيل بصمة الحضور مرة ثانية لاستخدام هذا الهاتف."
+            : "تحتاج مفتاح مرور صالحًا لإثبات الحضور في اللقاءات القادمة."}</p>
         </Dialog>
       )}
     </>

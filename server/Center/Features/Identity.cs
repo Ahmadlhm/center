@@ -323,6 +323,8 @@ public static class Identity
                     data.Memberships.Any(x => x.Account == id && x.Center == center && x.Active), "الحساب خارج المركز.", 403);
                 data.Credentials.RemoveAll(x => x.Account == id);
                 data.Challenges.RemoveAll(x => x.Account == id);
+                data.AndroidAttendanceKeys.RemoveAll(x => x.Account == id);
+                data.AndroidAttendanceChallenges.RemoveAll(x => x.Account == id);
                 data.Sessions.RemoveAll(x => x.Account == id);
                 data.Audit.Log(actor, "staff.passkeys.revoke", id);
                 return true;

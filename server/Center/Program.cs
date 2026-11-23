@@ -34,6 +34,11 @@ builder.Services.AddHttpClient("internal", c => c.Timeout = TimeSpan.FromSeconds
 builder.Services.AddSingleton<State>();
 if (mode is "identity" or "all")
 {
+    builder.Services.AddSingleton(mobileLinks);
+    builder.Services.AddMemoryCache();
+    builder.Services.AddHttpClient("android-attestation", c => c.Timeout = TimeSpan.FromSeconds(8))
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false });
+    builder.Services.AddSingleton<AndroidKeyAttestation>();
     var protection = builder.Services.AddDataProtection().SetApplicationName("quran-center-identity");
     if (config["CENTER_DATA_PROTECTION_DIRECTORY"] is { Length: > 0 } keyDirectory)
         protection.PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
@@ -127,7 +132,7 @@ if (mode == "gateway")
 }
 else
 {
-    if (store.Local(Module.Identity)) { Identity.Map(app); Passkeys.Map(app); }
+    if (store.Local(Module.Identity)) { Identity.Map(app); Passkeys.Map(app); AndroidAttendance.Map(app); }
     if (store.Local(Module.People)) People.Map(app);
     if (store.Local(Module.Education)) { Education.Map(app); Transfers.MapReports(app); }
     if (store.Local(Module.Work)) Work.Map(app);

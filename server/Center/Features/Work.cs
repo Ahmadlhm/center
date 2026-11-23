@@ -23,11 +23,17 @@ public static class Work
                 tasks = data.Tasks.Where(x => actor.Admin || x.Teacher == actor.Id || (actor.Manager && people.Groups.Any(y => y.Id == x.Group && people.InScope(y.Unit, actor.Units))))
             };
         });
-        g.MapPost("/checkins/{meeting:guid}/options", async (Guid center, Guid meeting, DateOnly? date, State store, HttpContext http, IFido2 fido) =>
+        g.MapPost("/checkins/{meeting:guid}/options", async (Guid center, Guid meeting, DateOnly? date, bool? android, State store, HttpContext http, IFido2 fido) =>
         {
             var (actor, info) = await Identity.Context(store, http, center);
             await CheckContext(store, actor, info, meeting, date);
             var input = new Passkeys.ProofContext(actor, meeting);
+            if (android is true)
+            {
+                var options = store.Local(Module.Identity) ? await AndroidAttendance.Options(store, input) :
+                    await store.Send<AndroidAttendance.AttendanceOptions>(Module.Identity, "/internal/android-attendance/options", input);
+                return JsonSerializer.SerializeToElement(options, State.Json);
+            }
             return store.Local(Module.Identity) ? await Passkeys.Options(store, fido, input) :
                 await store.Send<JsonElement>(Module.Identity, "/internal/passkey/options", input);
         });
@@ -41,15 +47,14 @@ public static class Work
             Rules.Require(age is >= -20 and <= 120 && input.Accuracy > 0 && input.Accuracy <= rule.Accuracy && input.Latitude is >= -90 and <= 90 && input.Longitude is >= -180 and <= 180,
                 "اطلب قراءة حديثة للموقع بدقة أعلى.");
             Rules.Require(Distance(input.Latitude, input.Longitude, rule.Latitude!.Value, rule.Longitude!.Value) + input.Accuracy <= rule.Radius, "الموقع خارج النطاق أو دقته غير كافية.");
-            var proof = new Passkeys.Proof(actor, meeting, input.Id, input.Response);
-            var verified = store.Local(Module.Identity) ? await Passkeys.Verify(store, fido, proof) :
-                await store.Send<bool>(Module.Identity, "/internal/passkey/verify", proof);
-            Rules.Require(verified, "تعذّر التحقق من مفتاح المرور.");
+            Rules.Require((input.Android is null) != (input.Response is null), "أرسل إثبات حضور صالحًا.");
+            Rules.Require(await VerifyProof(store, fido, http, actor, meeting, input), "تعذّر التحقق من إثبات الحضور.");
             return await store.Change<WorkData, CheckIn>(Module.Work, center, data =>
             {
                 var prior = data.CheckIns.Find(x => x.Meeting == meeting && x.Teacher == actor.Id && x.State == "verified");
                 if (prior is not null) return prior;
-                var result = new CheckIn(meeting, actor.Id, "verified", DateTimeOffset.UtcNow, "passkey", null, input.Accuracy);
+                var result = new CheckIn(meeting, actor.Id, "verified", DateTimeOffset.UtcNow,
+                    input.Android is null ? "passkey" : "android-biometric", null, input.Accuracy);
                 data.CheckIns.Upsert(x => x.Meeting == meeting && x.Teacher == actor.Id, result);
                 data.Audit.Log(actor, "checkin.verified", meeting);
                 return result;
@@ -162,7 +167,22 @@ public static class Work
             Math.Cos(lat1 * radians) * Math.Cos(lat2 * radians) * Math.Pow(Math.Sin((lon2 - lon1) * radians / 2), 2);
         return 12742000 * Math.Asin(Math.Sqrt(Math.Clamp(a, 0, 1)));
     }
-    public record CheckInput(Guid Id, AuthenticatorAssertionRawResponse Response, double Latitude, double Longitude, double Accuracy, DateTimeOffset Captured);
+    private static Task<bool> VerifyProof(State store, IFido2 fido, HttpContext http, Actor actor, Guid meeting, CheckInput input)
+    {
+        if (input.Android is { } assertion)
+        {
+            var proof = new AndroidAttendance.Proof(actor, meeting, input.Id, assertion);
+            return store.Local(Module.Identity)
+                ? AndroidAttendance.Verify(store, http.RequestServices.GetRequiredService<AndroidKeyAttestation>(), proof, http.RequestAborted)
+                : store.Send<bool>(Module.Identity, "/internal/android-attendance/verify", proof);
+        }
+        var passkey = new Passkeys.Proof(actor, meeting, input.Id, input.Response!);
+        return store.Local(Module.Identity) ? Passkeys.Verify(store, fido, passkey) :
+            store.Send<bool>(Module.Identity, "/internal/passkey/verify", passkey);
+    }
+
+    internal record CheckInput(Guid Id, AuthenticatorAssertionRawResponse? Response, double Latitude, double Longitude, double Accuracy, DateTimeOffset Captured,
+        AndroidAttendance.Assertion? Android = null);
     public record CheckReview(Guid Teacher, string State, string Reason);
     public record TaskInput(Guid Teacher, string Title, string Detail, DateOnly Due, Guid? Group, Guid? Course);
     public record TaskAction(string State, string? Reply);

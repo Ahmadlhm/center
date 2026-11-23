@@ -800,7 +800,7 @@ export function StaffPage({ c }: { c: Context }) {
                 )}
                 {s.active && (
                   <Button kind="outline" onClick={() => setClearKeys(s)}>
-                    إبطال مفاتيح المرور
+                    إبطال وسائل إثبات الحضور
                   </Button>
                 )}
               </td>
@@ -900,18 +900,18 @@ export function StaffPage({ c }: { c: Context }) {
       )}
       {clearKeys && (
         <Dialog
-          title={"إبطال مفاتيح مرور " + clearKeys.name}
+          title={"إبطال وسائل إثبات حضور " + clearKeys.name}
           close={() => setClearKeys(undefined)}
           submit={async () => {
             await api(
               f(c, "/identity/staff/" + clearKeys.id + "/passkeys"),
               "DELETE",
             );
-            c.notify("أُبطلت مفاتيح المرور");
+            c.notify("أُبطلت وسائل إثبات الحضور");
           }}
-          confirm="إبطال المفاتيح"
+          confirm="إبطال وسائل التحقق"
         >
-          <p>يُسجّل الموظف دخوله من جديد ويضيف مفتاح مرور جديدًا من جهازه.</p>
+          <p>يُسجّل الموظف دخوله من جديد ويعيد تفعيل إثبات الحضور على جهازه.</p>
         </Dialog>
       )}
       {reset && (
