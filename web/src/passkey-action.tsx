@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from "react";
-import {
-  browserSupportsWebAuthn,
-  startAuthentication,
-} from "@simplewebauthn/browser";
 import { captureLocation } from "./device";
+import {
+  devicePasskeyError,
+  supportsDevicePasskeys,
+  usesAndroidPasskeys,
+  verifyDevicePasskey,
+  type AuthenticationOptions,
+} from "./device-passkeys";
 import { api, message } from "./model";
 import { Button, Dialog, ErrorBox } from "./ui";
 
@@ -35,8 +38,8 @@ export function PasskeyAction({
     setError("");
     setConfirm(undefined);
     try {
-      if (!window.isSecureContext || !browserSupportsWebAuthn())
-        throw new Error("افتح المنصة عبر HTTPS في متصفح يدعم مفاتيح المرور مثل Safari.");
+      if (!supportsDevicePasskeys())
+        throw new Error("افتح المنصة عبر HTTPS في متصفح يدعم مفاتيح المرور أو حدّث تطبيق Android.");
       const action = await prepare();
       setConfirm(() => action);
     } catch (failure) {
@@ -55,11 +58,7 @@ export function PasskeyAction({
       await confirm();
       setOpen(false);
     } catch (failure) {
-      setError(
-        failure instanceof Error && failure.name === "NotAllowedError"
-          ? "لم يكتمل التحقق على هذا الجهاز. حاول مرة أخرى وتابع نافذة الجهاز."
-          : message(failure),
-      );
+      setError(devicePasskeyError(failure));
       setConfirm(undefined);
     } finally {
       setBusy(false);
@@ -121,18 +120,18 @@ export function AttendanceProof({
   return (
     <PasskeyAction
       title="تأكيد الحضور"
-      description="تابع للتحقق بالوجه أو ببصمة الإصبع أو برمز قفل الجهاز. إذا لم تجد مفتاحًا لهذا الموقع، أضف مفتاحًا على هذا الجهاز أولًا."
+      description={usesAndroidPasskeys()
+        ? "تابع وافتح مفتاح الحضور ببصمة الإصبع من نافذة Android. قد يطلب الجهاز رمز قفل الشاشة."
+        : "تابع للتحقق بالوجه أو ببصمة الإصبع أو برمز قفل الجهاز. إذا لم تجد مفتاحًا لهذا الموقع، أضف مفتاحًا على هذا الجهاز أولًا."}
       showSetup
       disabled={disabled}
       prepare={async () => {
         const challenge = await api<{
           id: string;
-          options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
+          options: AuthenticationOptions;
         }>(endpoint + "/options" + query, "POST");
         return async () => {
-          const response = await startAuthentication({
-            optionsJSON: challenge.options,
-          });
+          const response = await verifyDevicePasskey(challenge.options);
           const position = await captureLocation();
           await api(endpoint + query, "POST", {
             id: challenge.id,
