@@ -5,70 +5,81 @@ const origin = process.env.CENTER_TEST_ORIGIN ?? "http://localhost:5173";
 const browser = await chromium.launch({ channel: "chrome" });
 try {
   const page = await browser.newPage();
-  const testPage = new URL("/__android-passkeys-test", origin).href;
+  const testPage = new URL("/__android-biometrics-test", origin).href;
+  const enrollment = "/identity/android-attendance";
+  const attendance = "/work/checkins/meeting";
+  const requests = [];
   await page.route(testPage, (route) =>
     route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
   );
+  await page.route("**/api/mock/**", async (route) => {
+    const request = route.request();
+    const address = new URL(request.url());
+    requests.push([request.method(), address.pathname + address.search, request.postDataJSON()]);
+    if (address.pathname.endsWith("/register/options")) {
+      await route.fulfill({ json: { id: "device-key", challenge: "enroll-challenge" } });
+    } else if (address.pathname.endsWith("/checkins/meeting/options")) {
+      await route.fulfill({ json: { id: "attendance-proof", challenge: "attendance-challenge", keyIds: ["device-key"] } });
+    } else {
+      await route.fulfill({ status: 204 });
+    }
+  });
   await page.goto(testPage);
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ enrollment, attendance }) => {
     const calls = [];
     window.androidBridge = {};
     window.Capacitor = {
       PluginHeaders: [{
-        name: "AndroidPasskeys",
-        methods: ["register", "verify"].map((name) => ({ name, rtype: "promise" })),
+        name: "AndroidBiometrics",
+        methods: ["enroll", "sign", "remove", "openSettings"].map((name) => ({ name, rtype: "promise" })),
       }],
       nativePromise: async (plugin, method, input) => {
-        calls.push({ plugin, method, options: input.options });
-        return { id: "credential-from-android", type: "public-key" };
+        calls.push([plugin, method, input]);
+        if (method === "enroll") return { chain: ["certificate"], signature: "enrollment-signature" };
+        if (method === "sign") return { keyId: "device-key", signature: "attendance-signature" };
       },
     };
     navigator.credentials.create = navigator.credentials.get = () => {
       throw new Error("Android attendance called browser WebAuthn");
     };
-
-    const passkeys = await import("/src/device-passkeys.ts");
-    const registration = await passkeys.registerDevicePasskey({
-      challenge: "registration-challenge",
-      pubKeyCredParams: [
-        { type: "public-key", alg: -8 },
-        { type: "public-key", alg: -7 },
-      ],
-      authenticatorSelection: { userVerification: "required" },
-    });
-    const assertionOptions = {
-      challenge: "assertion-challenge",
-      rpId: "centers.men",
-      allowCredentials: [{ id: registration.id, type: "public-key" }],
-      userVerification: "required",
-    };
-    const assertion = await passkeys.verifyDevicePasskey(assertionOptions);
+    const device = await import("/src/device-passkeys.ts");
+    const enroll = await device.prepareDeviceEnrollment("/api/mock" + enrollment);
+    const choicesBeforeUserTap = calls.length;
+    await enroll();
+    const sign = await device.prepareDeviceAssertion("/api/mock" + attendance, "2026-11-23");
+    const assertion = await sign();
+    await device.revokeAttendanceDevice("/api/mock" + enrollment, "device-key");
     return {
-      supported: passkeys.supportsDevicePasskeys(),
+      supported: device.supportsDevicePasskeys(),
+      choicesBeforeUserTap,
       calls,
-      assertionOptions,
       assertion,
-      cancellation: passkeys.devicePasskeyError({ code: "GetCredentialCancellationException" }),
-      noKey: passkeys.devicePasskeyError({ code: "NoCredentialException" }),
+      cancellation: device.devicePasskeyError({ code: "PROMPT_13" }),
+      noBiometrics: device.devicePasskeyError({ code: "NOT_ENROLLED" }),
     };
-  });
+  }, { enrollment, attendance });
   assert(result.supported);
-  assert.deepEqual(result.calls.map(({ plugin, method }) => [plugin, method]), [
-    ["AndroidPasskeys", "register"],
-    ["AndroidPasskeys", "verify"],
+  assert.equal(result.choicesBeforeUserTap, 0);
+  assert.deepEqual(result.calls, [
+    ["AndroidBiometrics", "enroll", { id: "device-key", challenge: "enroll-challenge" }],
+    ["AndroidBiometrics", "sign", { challenge: "attendance-challenge", keyIds: ["device-key"] }],
+    ["AndroidBiometrics", "remove", { keyId: "device-key" }],
   ]);
-  assert.deepEqual(result.calls[0].options.pubKeyCredParams, [{ type: "public-key", alg: -7 }]);
-  assert.deepEqual(result.calls[0].options.authenticatorSelection, {
-    userVerification: "required",
-    authenticatorAttachment: "platform",
-    residentKey: "required",
-    requireResidentKey: true,
+  assert.deepEqual(result.assertion, {
+    id: "attendance-proof",
+    android: { keyId: "device-key", signature: "attendance-signature" },
   });
-  assert.deepEqual(result.calls[1].options, result.assertionOptions);
-  assert.equal(result.assertion.id, "credential-from-android");
-  assert.match(result.cancellation, /أُغلق طلب التحقق/);
-  assert.match(result.noKey, /ما في مفتاح حضور/);
-  console.log("PASS: Android bridge routing, ES256 registration, assertion options and errors.");
+  assert.deepEqual(requests, [
+    ["POST", "/api/mock" + enrollment + "/register/options", null],
+    ["POST", "/api/mock" + enrollment + "/register/complete", {
+      id: "device-key", chain: ["certificate"], signature: "enrollment-signature",
+    }],
+    ["POST", "/api/mock" + attendance + "/options?date=2026-11-23&android=true", null],
+    ["DELETE", "/api/mock" + enrollment + "?id=device-key", null],
+  ]);
+  assert.match(result.cancellation, /أُلغي التحقق بالبصمة/);
+  assert.match(result.noBiometrics, /سجّل بصمة إصبع/);
+  console.log("PASS: Android biometric enrollment, assertion, revoke and error handling through the native bridge.");
 } finally {
   await browser.close();
 }

@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Data/catalog.json" />
+    <EmbeddedResource Include="Data/android-attestation-roots.pem" />
   </ItemGroup>
 </Project>

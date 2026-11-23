@@ -339,6 +339,35 @@ try {
   );
 
   const meeting = await json(admin, "POST", api(main, "/education/meetings"), schedule);
+  if (process.env.CENTER_TEST_ANDROID_ATTESTATION === "true") {
+    const enrollmentPath = api(main, "/identity/android-attendance");
+    const options = await json(teacher, "POST", enrollmentPath + "/register/options");
+    assert.equal(Buffer.from(options.challenge, "base64").length, 32);
+    const proof = {
+      id: options.id,
+      chain: ["bm90LWEtdmFsaWQtY2VydGlmaWNhdGU=", "bm90LWEtdmFsaWQtY2VydGlmaWNhdGU="],
+      signature: "aW52YWxpZA==",
+    };
+    await expectResponse(admin, "POST", enrollmentPath + "/register/complete", proof, 404);
+    await expectResponse(teacher, "POST", enrollmentPath + "/register/complete", proof, 400);
+    const next = await json(teacher, "POST", enrollmentPath + "/register/options");
+    assert.notEqual(next.challenge, options.challenge);
+    await expectResponse(teacher, "POST", enrollmentPath + "/register/complete", proof, 404);
+    assert(!(await json(teacher, "GET", enrollmentPath)).some(({ id }) => id === options.id));
+    await expectResponse(
+      teacher, "POST", api(main, "/work/checkins/" + meeting.id),
+      {
+        id: next.id,
+        android: { keyId: next.id, signature: proof.signature },
+        latitude: 31.955,
+        longitude: 35.945,
+        accuracy: 8,
+        captured: new Date().toISOString(),
+      },
+      404,
+    );
+    console.log("PASS: Android server challenges, account/action scoping, and rejection of untrusted keys.");
+  }
   await mobile.goto("/#meeting/" + meeting.id);
   await mobile.getByRole("button", { name: "إثبات حضوري" }).click();
   const confirmation = mobile.getByRole("dialog", { name: "تأكيد الحضور" });

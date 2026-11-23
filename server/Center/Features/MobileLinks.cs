@@ -4,9 +4,11 @@ namespace Center.Features;
 
 public sealed class MobileLinks
 {
-    private const string AppId = "org.qurancenters.staff";
+    internal const string AppId = "org.qurancenters.staff";
     private readonly byte[]? androidCertificate;
     private readonly string? appleTeamId;
+
+    internal ReadOnlySpan<byte> AndroidCertificate => androidCertificate;
 
     public MobileLinks(IConfiguration config)
     {

@@ -31,10 +31,14 @@ public sealed class IdentityData
     public List<Invite> Invites { get; init; } = [];
     public List<Credential> Credentials { get; init; } = [];
     public List<Challenge> Challenges { get; init; } = [];
+    public List<AndroidAttendanceKey> AndroidAttendanceKeys { get; init; } = [];
+    public List<AndroidAttendanceChallenge> AndroidAttendanceChallenges { get; init; } = [];
     public List<Audit> Audit { get; init; } = [];
 }
 public record Credential(Guid Account, string Id, string Key, uint Counter);
 public record Challenge(Guid Id, Guid Account, Guid Center, Guid? Meeting, string Options, DateTimeOffset Expires);
+public record AndroidAttendanceKey(Guid Id, Guid Account, string PublicKey, string[] CertificateSerials);
+public record AndroidAttendanceChallenge(Guid Id, Guid Account, Guid Center, Guid? Meeting, byte[] Value, DateTimeOffset Expires);
 
 public record Unit(Guid Id, string Name, string Kind, Guid? Parent, bool Active = true);
 public record UnitPlacement(Guid Unit, Guid? Parent, DateOnly Effective);

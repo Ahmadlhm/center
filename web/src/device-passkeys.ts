@@ -4,76 +4,109 @@ import {
   startAuthentication,
   startRegistration,
 } from "@simplewebauthn/browser";
-import { message } from "./model";
+import { api, message } from "./model";
 
-export type RegistrationOptions = Parameters<typeof startRegistration>[0]["optionsJSON"];
-export type AuthenticationOptions = Parameters<typeof startAuthentication>[0]["optionsJSON"];
+type RegistrationOptions = Parameters<typeof startRegistration>[0]["optionsJSON"];
+type AuthenticationOptions = Parameters<typeof startAuthentication>[0]["optionsJSON"];
+type Challenge = { id: string; challenge: string };
+type AndroidAssertion = { keyId: string; signature: string };
 
-const androidPasskeys = registerPlugin<{
-  register(input: { options: RegistrationOptions }): ReturnType<typeof startRegistration>;
-  verify(input: { options: AuthenticationOptions }): ReturnType<typeof startAuthentication>;
-}>("AndroidPasskeys");
+const android = registerPlugin<{
+  enroll(input: Challenge): Promise<{ chain: string[]; signature: string }>;
+  sign(input: { challenge: string; keyIds: string[] }): Promise<AndroidAssertion>;
+  remove(input: { keyId: string }): Promise<void>;
+  openSettings(): Promise<void>;
+}>("AndroidBiometrics");
 
-export function usesAndroidPasskeys() {
-  return Capacitor.getPlatform() === "android" && Capacitor.isPluginAvailable("AndroidPasskeys");
+export function isAndroidApp() {
+  return Capacitor.getPlatform() === "android";
+}
+
+export function androidBiometricsAvailable() {
+  return isAndroidApp() && Capacitor.isPluginAvailable("AndroidBiometrics");
 }
 
 export function supportsDevicePasskeys() {
-  return window.isSecureContext && (usesAndroidPasskeys() || browserSupportsWebAuthn());
+  return window.isSecureContext &&
+    (isAndroidApp() ? androidBiometricsAvailable() : browserSupportsWebAuthn());
 }
 
-export function registerDevicePasskey(options: RegistrationOptions) {
-  if (!usesAndroidPasskeys()) return startRegistration({ optionsJSON: options });
+export async function prepareDeviceEnrollment(path: string) {
+  const optionsPath = path + "/register/options";
+  const completePath = path + "/register/complete";
+  if (isAndroidApp()) {
+    const challenge = await api<Challenge>(optionsPath, "POST");
+    return async () => {
+      const attestation = await android.enroll(challenge);
+      await api(completePath, "POST", { id: challenge.id, ...attestation });
+    };
+  }
+  const challenge = await api<{ id: string; options: RegistrationOptions }>(optionsPath, "POST");
+  return async () => {
+    const response = await startRegistration({ optionsJSON: challenge.options });
+    await api(completePath, "POST", { id: challenge.id, response });
+  };
+}
 
-  // Android's built-in passkey providers support ES256.
-  const algorithms = options.pubKeyCredParams.filter(({ alg }) => alg === -7);
-  if (!algorithms.length) throw new Error("خادم المنصة لا يوفّر خوارزمية متوافقة مع مفاتيح Android.");
-  return androidPasskeys.register({
-    options: {
-      ...options,
-      pubKeyCredParams: algorithms,
-      authenticatorSelection: {
-        ...options.authenticatorSelection,
-        authenticatorAttachment: "platform",
-        residentKey: "required",
-        requireResidentKey: true,
-      },
-    },
+export async function prepareDeviceAssertion(endpoint: string, date?: string) {
+  const query = new URLSearchParams();
+  if (date) query.set("date", date);
+  if (isAndroidApp()) {
+    query.set("android", "true");
+    const challenge = await api<Challenge & { keyIds: string[] }>(
+      endpoint + "/options?" + query, "POST",
+    );
+    return async () => ({
+      id: challenge.id,
+      android: await android.sign({ challenge: challenge.challenge, keyIds: challenge.keyIds }),
+    });
+  }
+  const challenge = await api<{ id: string; options: AuthenticationOptions }>(
+    endpoint + "/options" + (date ? "?" + query : ""), "POST",
+  );
+  return async () => ({
+    id: challenge.id,
+    response: await startAuthentication({ optionsJSON: challenge.options }),
   });
 }
 
-export function verifyDevicePasskey(options: AuthenticationOptions) {
-  if (usesAndroidPasskeys()) return androidPasskeys.verify({ options });
-  return startAuthentication({ optionsJSON: options });
+export function openAndroidBiometricSettings() {
+  return android.openSettings();
+}
+
+export async function revokeAttendanceDevice(path: string, id: string) {
+  await api(path + "?id=" + encodeURIComponent(id), "DELETE");
+  if (androidBiometricsAvailable()) await android.remove({ keyId: id });
 }
 
 export function devicePasskeyError(error: unknown) {
   const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
   switch (code) {
-    case "NoCredentialException":
-      return "ما في مفتاح حضور متاح لهذا الحساب على الجهاز. أضف مفتاحًا من صفحة «مفتاح إثبات الحضور» ثم أعد المحاولة.";
+    case "DEVICE_NOT_REGISTERED":
+      return "فعّل بصمة الحضور لهذا الحساب على الهاتف من صفحة «مفتاح إثبات الحضور».";
+    case "NOT_ENROLLED":
+    case "PROMPT_11":
+      return "سجّل بصمة إصبع وقفل شاشة في إعدادات الأمان على الهاتف، ثم حاول مرة ثانية.";
+    case "NO_FINGERPRINT":
+      return "هذا الهاتف ما فيه مستشعر بصمة إصبع.";
     case "UNSUPPORTED_ANDROID":
-      return "مفاتيح الحضور تحتاج Android 9 أو أحدث.";
-    case "CreateCredentialCancellationException":
-    case "GetCredentialCancellationException":
-      return "أُغلق طلب التحقق. أعد المحاولة وأكمل التحقق من نافذة Android.";
-    case "CreateCredentialNoCreateOptionException":
-    case "CreateCredentialProviderConfigurationException":
-    case "GetCredentialProviderConfigurationException":
-    case "CreateCredentialUnsupportedException":
-    case "GetCredentialUnsupportedException":
-      return "فعّل قفل الشاشة والبصمة ومدير مفاتيح المرور من إعدادات Android، ثم أعد المحاولة.";
+      return "البصمة المباشرة تحتاج Android 11 أو أحدث.";
+    case "PROMPT_5":
+    case "PROMPT_10":
+    case "PROMPT_13":
+      return "أُلغي التحقق بالبصمة. حاول مرة ثانية عند الاستعداد.";
+    case "PROMPT_7":
+    case "PROMPT_9":
+      return "البصمة مقفلة مؤقتًا. افتح قفل الهاتف ثم حاول مرة ثانية.";
+    case "SETTINGS_UNAVAILABLE":
+      return "افتح إعدادات الأمان والبصمة على الهاتف.";
+    case "KEY_UNAVAILABLE":
+    case "SENSOR_UNAVAILABLE":
+      return "تعذّر تشغيل البصمة الآمنة. تأكّد من إعدادات البصمة وقفل الشاشة ثم حاول مرة ثانية.";
   }
-  if (typeof code === "string" && (
-    code.startsWith("CreateCredential") ||
-    code.startsWith("GetCredential") ||
-    code.endsWith("PublicKeyCredentialDomException")
-  )) {
-    return "تعذّر إكمال طلب مفتاح الحضور على Android. تأكّد من تفعيل البصمة ومدير مفاتيح المرور ثم أعد المحاولة.";
-  }
+  if (typeof code === "string" && code.startsWith("PROMPT_"))
+    return "تعذّر إكمال التحقق بالبصمة. حاول مرة ثانية.";
   if (error instanceof Error && error.name === "NotAllowedError")
     return "لم يكتمل التحقق على هذا الجهاز. حاول مرة أخرى وتابع نافذة الجهاز.";
-  if (Capacitor.getPlatform() === "android" && message(error).includes("pubKeyCredParams"))
-    return "حدّث تطبيق Android لتتمكن من إعداد مفتاح الحضور من نافذة الجهاز.";
   return message(error);
 }

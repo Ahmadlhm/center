@@ -75,6 +75,7 @@ public static class Passwords
         data.Sessions.RemoveAll(x => x.Account == id);
         data.PasswordResets.RemoveAll(x => x.Account == id);
         data.Challenges.RemoveAll(x => x.Account == id);
+        data.AndroidAttendanceChallenges.RemoveAll(x => x.Account == id);
     }
     public static void Map(RouteGroupBuilder g)
     {

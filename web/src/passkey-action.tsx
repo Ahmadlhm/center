@@ -2,10 +2,9 @@ import { useState, type ReactNode } from "react";
 import { captureLocation } from "./device";
 import {
   devicePasskeyError,
+  isAndroidApp,
+  prepareDeviceAssertion,
   supportsDevicePasskeys,
-  usesAndroidPasskeys,
-  verifyDevicePasskey,
-  type AuthenticationOptions,
 } from "./device-passkeys";
 import { api, message } from "./model";
 import { Button, Dialog, ErrorBox } from "./ui";
@@ -39,7 +38,9 @@ export function PasskeyAction({
     setConfirm(undefined);
     try {
       if (!supportsDevicePasskeys())
-        throw new Error("افتح المنصة عبر HTTPS في متصفح يدعم مفاتيح المرور أو حدّث تطبيق Android.");
+        throw new Error(isAndroidApp()
+          ? "حدّث تطبيق Android لتفعيل بصمة الحضور."
+          : "افتح المنصة عبر HTTPS في متصفح يدعم مفاتيح المرور.");
       const action = await prepare();
       setConfirm(() => action);
     } catch (failure) {
@@ -93,7 +94,7 @@ export function PasskeyAction({
                 href="#passkey"
                 onClick={() => setOpen(false)}
               >
-                إعداد مفتاح على هذا الجهاز
+                {isAndroidApp() ? "تفعيل بصمة الحضور" : "إعداد مفتاح على هذا الجهاز"}
               </a>
             )}
           </div>
@@ -120,22 +121,18 @@ export function AttendanceProof({
   return (
     <PasskeyAction
       title="تأكيد الحضور"
-      description={usesAndroidPasskeys()
-        ? "تابع وافتح مفتاح الحضور ببصمة الإصبع من نافذة Android. قد يطلب الجهاز رمز قفل الشاشة."
+      description={isAndroidApp()
+        ? "تابع لتأكيد حضورك بالبصمة من نافذة Android. بعدها يطلب التطبيق قراءة موقعك."
         : "تابع للتحقق بالوجه أو ببصمة الإصبع أو برمز قفل الجهاز. إذا لم تجد مفتاحًا لهذا الموقع، أضف مفتاحًا على هذا الجهاز أولًا."}
       showSetup
       disabled={disabled}
       prepare={async () => {
-        const challenge = await api<{
-          id: string;
-          options: AuthenticationOptions;
-        }>(endpoint + "/options" + query, "POST");
+        const verify = await prepareDeviceAssertion(endpoint, date);
         return async () => {
-          const response = await verifyDevicePasskey(challenge.options);
+          const proof = await verify();
           const position = await captureLocation();
           await api(endpoint + query, "POST", {
-            id: challenge.id,
-            response,
+            ...proof,
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
