@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { startRegistration } from "@simplewebauthn/browser";
+import { registerDevicePasskey, usesAndroidPasskeys, type RegistrationOptions } from "./device-passkeys";
 import { ClipboardCheck, Fingerprint, ShieldCheck, Trash2 } from "lucide-react";
 import { PasskeyAction } from "./passkey-action";
 import {
@@ -412,16 +412,16 @@ export function PasskeyPage({ c }: { c: Context }) {
       >
         <PasskeyAction
           title="إعداد مفتاح على هذا الجهاز"
-          description="احفظ مفتاحًا لهذا الموقع لتأكيد حضورك من هذا الجهاز. على iPhone اختر حفظه في تطبيق كلمات السر عند ظهور نافذة الجهاز."
+          description={usesAndroidPasskeys()
+            ? "احفظ مفتاح الحضور من نافذة Android. فعّل بصمة الإصبع وقفل الشاشة من إعدادات الجهاز قبل المتابعة."
+            : "احفظ مفتاح الحضور على هذا الجهاز عند ظهور نافذة الحفظ."}
           prepare={async () => {
             const challenge = await api<{
               id: string;
-              options: Parameters<typeof startRegistration>[0]["optionsJSON"];
+              options: RegistrationOptions;
             }>(path + "/register/options", "POST");
             return async () => {
-              const response = await startRegistration({
-                optionsJSON: challenge.options,
-              });
+              const response = await registerDevicePasskey(challenge.options);
               await api(path + "/register/complete", "POST", {
                 id: challenge.id,
                 response,
