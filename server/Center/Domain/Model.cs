@@ -20,6 +20,7 @@ public record PasswordReset(Guid Account, string Hash, DateTimeOffset Expires);
 public record Audit(DateTimeOffset At, Guid By, string Action, string Target, string? Reason = null);
 public sealed class IdentityData
 {
+    public PlatformBrand Brand { get; set; } = new("بوابة المراكز القرآنية", null);
     public CatalogSettings? Catalog { get; set; }
     public bool DemoMapInitialized { get; set; }
     public List<PasswordReset> PasswordResets { get; init; } = [];
@@ -35,6 +36,7 @@ public sealed class IdentityData
     public List<AndroidAttendanceChallenge> AndroidAttendanceChallenges { get; init; } = [];
     public List<Audit> Audit { get; init; } = [];
 }
+public record PlatformBrand(string Name, string? Logo);
 public record Credential(Guid Account, string Id, string Key, uint Counter);
 public record Challenge(Guid Id, Guid Account, Guid Center, Guid? Meeting, string Options, DateTimeOffset Expires);
 public record AndroidAttendanceKey(Guid Id, Guid Account, string PublicKey, string[] CertificateSerials);

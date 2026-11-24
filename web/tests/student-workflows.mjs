@@ -194,6 +194,7 @@ try {
   });
   const page = await browser.newPage({ baseURL: origin });
   await page.goto("/");
+  await page.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await page.getByRole("button", { name: "مدير المركز", exact: true }).click();
   await page.getByRole("link", { name: "الطلاب", exact: true }).first().click();
   await page.getByRole("button", { name: "إضافة طالب" }).click();

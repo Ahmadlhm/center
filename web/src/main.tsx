@@ -4,6 +4,7 @@ import {
   type IssuedCredentials,
 } from "./passwords";
 import { CenterConfiguration } from "./center-configuration";
+import { Directory, BrandMark, centerPath, formLogo, type Brand, type PublicCenter, type DirectoryData } from "./center-directory";
 import { CatalogEditor } from "./catalog-editor";
 import { StaffDuty } from "./staff-duty";
 import type { Catalog } from "./quran";
@@ -120,9 +121,18 @@ const sections = [
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [hash, setHash] = useState(location.hash.slice(1));
-  const platformAuth = /^platform\/(login|forgot|reset\/[^/]+)$/.test(hash);
-  const platformPortal = platformAuth || (!session && hash === "platform");
-  const authPath = platformAuth ? hash.slice("platform/".length) : hash;
+  const [directory, setDirectory] = useState<DirectoryData>();
+  const [directoryError, setDirectoryError] = useState("");
+  const platformPortal = /^\/admin\/?$/.test(location.pathname);
+  const centerId = /^\/c\/([^/]+)\/?$/.exec(location.pathname)?.[1];
+  const center = directory?.centers.find(c => c.id === centerId);
+  const publicAction = hash === "apply" || hash === "forgot" || /^(activate|reset)\//.test(hash);
+  const readDirectory = useCallback(async () => {
+    try {
+      setDirectory(await api<DirectoryData>("/api/auth/directory"));
+      setDirectoryError("");
+    } catch (e) { setDirectoryError(message(e)); }
+  }, []);
   useEffect(() => {
     const change = () => setHash(location.hash.slice(1));
     const expired = () => setSession(null);
@@ -142,21 +152,35 @@ function App() {
   }, []);
   useEffect(() => {
     void load();
-  }, [load]);
+    void readDirectory();
+  }, [load, readDirectory]);
   const logout = async () => {
     await api("/api/auth/logout", "POST");
     setSession(null);
-    go(session?.platform ? "platform/login" : "");
+    go("");
   };
-  if (session === undefined)
+  if (hash === "platform" || hash.startsWith("platform/")) {
+    const action = hash.slice(9);
+    return <Redirect to={"/admin" + (action && action !== "login" ? "#" + action : "")} />;
+  }
+  if (directoryError && !directory) return <div className="standalone"><ErrorBox>{directoryError} <Button onClick={() => void readDirectory()}>إعادة المحاولة</Button></ErrorBox></div>;
+  if (session === undefined || !directory)
     return (
       <div className="loading">
         <img src={logo} alt="" />
         <p>جارٍ فتح المنصة…</p>
       </div>
     );
-  if (!session || platformAuth || authPath.startsWith("reset/"))
-    return <Auth key={hash} hash={authPath} platform={platformPortal} login={load} />;
+  if (centerId && !center) return <div className="standalone"><Empty title="هذا المركز غير متاح"><a className="btn" href="/">اختيار مركز آخر</a></Empty></div>;
+  if (publicAction || (platformPortal && !session?.platform) || (center && !session?.centers.some(c => c.id === center.id)))
+    return <Auth key={hash} hash={hash} platform={platformPortal} center={center} brand={directory.brand} login={load} />;
+  if (!platformPortal && !center) {
+    if (hash && session?.centers.length === 1) {
+      return <Redirect to={centerPath(session.centers[0].id) + "#" + hash} />;
+    }
+    return <Directory directory={directory} />;
+  }
+  if (!session) return null;
   if (session.mustChangePassword)
     return <ChangePassword forced done={load} logout={logout} />;
   if (session.platform && session.requiresMfa)
@@ -167,8 +191,8 @@ function App() {
         logout={logout}
       />
     );
-  if (session.platform && (!session.centers.length || hash === "platform"))
-    return <Platform user={session} logout={logout} />;
+  if (platformPortal && session.platform)
+    return <Platform user={session} logout={logout} brand={directory.brand} refreshBrand={readDirectory} />;
   if (!session.centers.length)
     return (
       <div className="standalone">
@@ -178,8 +202,12 @@ function App() {
       </div>
     );
   return (
-    <Workspace user={session} hash={hash} logout={logout} reloadUser={load} />
+    <Workspace user={session} center={session.centers.find(c => c.id === centerId)!} hash={hash} logout={logout} reloadUser={async () => { await Promise.all([load(), readDirectory()]); }} />
   );
+}
+function Redirect({ to }: { to: string }) {
+  useEffect(() => { location.replace(to); }, [to]);
+  return null;
 }
 const demos = [
   { name: "مدير المركز", email: "admin@demo.local", pass: "Demo-Admin-2026!" },
@@ -193,10 +221,14 @@ const demos = [
 function Auth({
   hash,
   platform,
+  brand,
+  center,
   login,
 }: {
   hash: string;
   platform: boolean;
+  brand: Brand;
+  center?: PublicCenter;
   login: () => Promise<void>;
 }) {
   const [demo, setDemo] = useState(false);
@@ -209,15 +241,16 @@ function Auth({
   const reset = hash.startsWith("reset/");
   const signInPage = !apply && !activate && !forgot && !reset;
   const portal = platform ? "platform" : "center";
-  const loginLink = platform ? "#platform/login" : "#";
+  const loginLink = platform ? "/admin" : center ? centerPath(center.id) : "/";
   useEffect(() => {
     void api<{ demo: boolean }>("/api/auth/info")
       .then((x) => setDemo(x.demo))
       .catch(() => {});
   }, []);
-  async function signIn(email: string, password: string) {
-    await api("/api/auth/login", "POST", { email, password, portal });
-    go(platform ? "platform" : "");
+  async function signIn(email: string, password: string, selected = center?.id) {
+    await api("/api/auth/login", "POST", { email, password, portal, center: selected });
+    if (selected && selected !== center?.id) { location.replace(centerPath(selected)); return; }
+    go("");
     await login();
   }
   async function run(fn: () => Promise<void>) {
@@ -240,6 +273,7 @@ function Auth({
         await api("/api/auth/password/forgot", "POST", {
           email: val(f, "email"),
           portal,
+          center: center?.id,
         });
         setDone(
           "إذا كان البريد مسجّلًا ستصلك رسالة الاستعادة عند تفعيل البريد. تواصل مع مدير المنصة إذا لم تصلك.",
@@ -250,6 +284,8 @@ function Auth({
         await api("/api/auth/password/reset", "POST", {
           token: hash.split("/")[1],
           password,
+          center: center?.id,
+          portal,
         });
         setDone("تم تحديث كلمة المرور. يمكنك تسجيل الدخول من جديد.");
       } else if (apply) {
@@ -262,11 +298,11 @@ function Auth({
           "استلمت إدارة المنصة طلبك. سيتواصل معك مدير المنصة بعد مراجعته.",
         );
       } else if (activate) {
-        const r = await api<{ email: string }>("/api/auth/activate", "POST", {
+        const r = await api<{ email: string; center: string }>("/api/auth/activate", "POST", {
           token: hash.split("/")[1],
           password,
         });
-        await signIn(r.email, password);
+        await signIn(r.email, password, r.center);
       } else await signIn(val(f, "email"), password);
     });
   }
@@ -275,11 +311,9 @@ function Auth({
       <section className="auth-art">
         <div className="auth-arch" />
         <div className="auth-identity">
-          <div className="logo-tile">
-            <img src={logo} alt="جمعية المحافظة على القرآن الكريم" />
-          </div>
-          <p>إدارة المراكز القرآنية</p>
-          <h1>{platform ? "إدارة المنصة" : "بوابة المراكز القرآنية"}</h1>
+          <BrandMark brand={center ?? brand} general={!center} />
+          <p>{center || platform ? brand.name : "إدارة المراكز القرآنية"}</p>
+          <h1>{center?.name ?? (platform ? "إدارة المنصة" : brand.name)}</h1>
         </div>
       </section>
       <section className="auth-content">
@@ -391,7 +425,7 @@ function Auth({
           )}
           {signInPage && (
             <div>
-              <a className="auth-link" href={platform ? "#platform/forgot" : "#forgot"}>
+              <a className="auth-link" href="#forgot">
                 نسيت كلمة المرور؟
               </a>
             </div>
@@ -400,9 +434,8 @@ function Auth({
             <a className="auth-link" href={loginLink}>العودة إلى تسجيل الدخول <ArrowLeft size={15} /></a>
           ) : (
             <div className="auth-switch">
-              {!platform && <a className="auth-link" href="#apply">انضمام مركز جديد</a>}
-              <a className="auth-link" href={platform ? "#" : "#platform/login"}>
-                {platform ? "بوابة دخول المركز" : "بوابة مدير المنصة"}
+              <a className="auth-link" href="/">
+                {platform ? "بوابة دخول المركز" : "تغيير المركز"}
                 <ArrowLeft size={15} />
               </a>
             </div>
@@ -427,11 +460,16 @@ type PlatformData = {
 function Platform({
   user,
   logout,
+  brand,
+  refreshBrand,
 }: {
   user: Session;
   logout: () => Promise<void>;
+  brand: Brand;
+  refreshBrand: () => Promise<void>;
 }) {
   const [tab, setTab] = useState("centers");
+  const [editBrand, setEditBrand] = useState(false);
   const [selected, setSelected] = useState("");
   const [configurationTab, setConfigurationTab] = useState("settings");
   const [creation, setCreation] = useState<{ id: string; withDirector: boolean }>();
@@ -487,6 +525,7 @@ function Platform({
           { value: "centers", name: "الطلبات والمراكز" },
           { value: "configuration", name: "إعدادات المراكز" },
           { value: "catalog", name: "كتالوج المنصة" },
+          { value: "brand", name: "هوية المنصة" },
           { value: "account", name: "حسابي" },
         ]}
       />
@@ -590,6 +629,16 @@ function Platform({
       {tab === "catalog" && catalog && (
         <CatalogEditor catalog={catalog} saved={setCatalog} />
       )}
+      {tab === "brand" && <section className="card panel"><BrandMark brand={brand} general /><h2>{brand.name}</h2>
+        <Button onClick={() => setEditBrand(true)}>تعديل هوية المنصة</Button></section>}
+      {editBrand && <Dialog title="تعديل هوية المنصة" close={() => setEditBrand(false)} submit={async form => {
+        await api("/api/auth/brand", "PUT", { name: val(form, "name"), logo: await formLogo(form) });
+        await refreshBrand();
+      }}>
+        <Field label="اسم المنصة"><input name="name" defaultValue={brand.name} maxLength={150} required /></Field>
+        <Field label="الشعار العام"><input name="logo" type="file" accept="image/png,image/jpeg" /></Field>
+        {brand.logo && <label><input type="checkbox" name="removeLogo" /> استعادة الشعار الافتراضي</label>}
+      </Dialog>}
       {tab === "configuration" && (
         <>
           <section className="card panel">
@@ -690,8 +739,7 @@ function Platform({
         >
           {decision.approve ? (
             <p>
-              يُنشأ المركز وتظهر بيانات دخول مديره أو رابط انضمامه إذا كان لديه
-              حساب.
+              يُنشأ المركز وتظهر بيانات الدخول المؤقتة لحساب مديره المستقل.
             </p>
           ) : (
             <Field label="سبب الرفض">
@@ -731,19 +779,17 @@ export function Invite({ token, close }: { token: string; close: () => void }) {
 }
 function Workspace({
   user,
+  center,
   hash,
   logout,
   reloadUser,
 }: {
   user: Session;
+  center: Center;
   hash: string;
   logout: () => Promise<void>;
   reloadUser: () => Promise<void>;
 }) {
-  const [centerId, setCenterId] = useState(
-    localStorage.getItem("center-active") ?? "",
-  );
-  const center = user.centers.find((c) => c.id === centerId) ?? user.centers[0];
   const endpoint = base(center);
   const [data, setData] = useState<{
     id: string;
@@ -762,6 +808,10 @@ function Workspace({
   const isAdmin = center.roles.includes("admin");
   const isManager = isAdmin || center.roles.includes("manager");
   const isTeacher = center.roles.includes("teacher");
+  const canConfigure = center.roles.includes("center-config");
+  const operational = isManager || isTeacher;
+  const configPage = canConfigure && (hash.startsWith("configuration") || !hash || (!operational && hash !== "password"));
+  const [catalog, setCatalog] = useState<Catalog>();
   const refresh = useCallback(async () => {
     const [people, education, work, staff, catalog] = await Promise.all([
       api<People>(endpoint + "/people"),
@@ -774,8 +824,9 @@ function Workspace({
     setError("");
   }, [endpoint, center.id]);
   useEffect(() => {
-    void refresh().catch((e) => setError(message(e)));
-  }, [refresh]);
+    if (configPage) void api<Catalog>("/api/auth/catalog").then(setCatalog).catch(e => setError(message(e)));
+    else if (operational) void refresh().catch((e) => setError(message(e)));
+  }, [refresh, configPage, operational]);
   useEffect(() => {
     if (!toast) return;
     const id = setTimeout(() => setToast(""), 3500);
@@ -850,6 +901,24 @@ function Workspace({
     };
     page = views[route]?.() ?? <Empty title="الصفحة غير متاحة" />;
   }
+  if (configPage || (!operational && route === "password")) {
+    const tabs = [{ key: "settings", name: "الإعدادات", icon: LayoutDashboard }, { key: "staff", name: "الحسابات", icon: Users }, { key: "structure", name: "الهيكل", icon: FolderTree }];
+    const currentTab = ["settings", "structure", "staff", "groups", "duties", "contests"].includes(id) ? id : "settings";
+    return <main className="standalone local-configuration">
+      <header className="page-head"><div><p>مدير منصة المركز</p><h1>{center.name}</h1></div><div className="actions">
+        {operational && <a className="btn outline" href={isManager ? "#home" : "#groups"}>العمل اليومي</a>}
+        <a className="btn outline" href="/">تغيير المركز</a>
+        <a className="btn outline" href="#password">كلمة المرور</a>
+        <Button kind="outline" onClick={() => void logout()}>تسجيل الخروج</Button>
+      </div></header>
+      {error && <ErrorBox>{error}</ErrorBox>}
+      {route === "password" ? <ChangePassword /> : catalog && <CenterConfiguration center={center} user={user} reload={reloadUser}
+        catalog={catalog} tab={currentTab} onTab={tab => go("configuration/" + tab)} />}
+      <nav className="teacher-mobile-nav" aria-label="إدارة المركز">{tabs.map(({key, name, icon: Icon}) =>
+        <a key={key} href={"#configuration/" + key} aria-current={configPage && currentTab === key ? "page" : undefined}>
+          <span><Icon size={20} /></span>{name}</a>)}</nav>
+    </main>;
+  }
   return (
     <div className="app-shell">
       {drawer && (
@@ -862,10 +931,8 @@ function Workspace({
       <aside className={"sidebar " + (drawer ? "shown" : "")}>
         <div className="brand">
           <div className="logo-tile">
-            {center.logo ||
-            (center.logo == null &&
-              center.id === "e751f402-dbd9-449f-9d01-40b525f06c29") ? (
-              <img src={center.logo ?? logo} alt="" />
+            {center.logo ? (
+              <img src={center.logo} alt="" />
             ) : (
               <BookOpen size={21} />
             )}
@@ -882,19 +949,6 @@ function Workspace({
             <X size={20} />
           </button>
         </div>
-        {user.centers.length > 1 && (
-          <div className="center-select">
-            <Select
-              options={options(user.centers)}
-              value={center.id}
-              onChange={(v) => {
-                localStorage.setItem("center-active", v);
-                setCenterId(v);
-                go("");
-              }}
-            />
-          </div>
-        )}
         <nav>
           {nav.map((s) => (
             <div key={s.name} className="nav-section">
@@ -924,6 +978,7 @@ function Workspace({
           ))}
         </nav>
         <div className="side-footer">
+          {canConfigure && <a href="#configuration/settings"><ShieldCheck size={17} />إعدادات المركز</a>}
           <a href="#passkey">
             <ShieldCheck size={17} />
             مفتاح إثبات الحضور
@@ -1022,15 +1077,15 @@ function Workspace({
             </div>
           ) : null}
         </main>
-        {!isManager && isTeacher && (
+        {operational && (
           <nav className="teacher-mobile-nav" aria-label="العمل اليومي">
-            {nav[0].items.filter(({ key }) => ["groups", "tasks", "duty"].includes(key))
+            {nav.flatMap(s => s.items).filter(({ key }) => (isManager ? ["home", "groups", "work", "reports"] : ["groups", "tasks", "duty"]).includes(key))
               .map(({ key, name, icon: Icon }) => {
                 const selected = key === route || (key === "groups" && ["group", "meeting"].includes(route));
                 return (
                   <a href={"#" + key} key={key} aria-current={selected ? "page" : undefined}>
                     <span><Icon size={20} /></span>
-                    {key === "duty" ? "الدوام" : name}
+                    {key === "duty" ? "دوامي" : key === "home" ? "الآن" : name}
                   </a>
                 );
               })}

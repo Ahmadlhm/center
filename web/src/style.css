@@ -1577,8 +1577,7 @@ dialog::backdrop {
   .auth-identity h1 br {
     display: none;
   }
-  .auth-identity > p,
-  .auth-identity > span {
+  .auth-identity > p {
     display: none;
   }
   .auth-arch {
@@ -2012,6 +2011,57 @@ th,
   display: flex;
   flex-wrap: wrap;
   gap: 0 18px;
+}
+.directory {
+  min-height: 100dvh;
+  background: var(--bg, #f6f8f5);
+}
+.directory-header {
+  color: white;
+  background: radial-gradient(ellipse at 0 130%, #40664c, transparent 62%), #183b34;
+  padding: calc(32px + env(safe-area-inset-top)) 20px 34px;
+}
+.directory-header > div, .directory-body {
+  max-width: 860px;
+  margin: 0 auto;
+}
+.directory-header > div, .directory-center, .directory-search, .directory footer {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.directory-header h1 { color: white; font-size: clamp(29px, 5vw, 46px); margin: 0; }
+.directory-header .logo-tile { width: 56px; height: 56px; }
+.directory-body { padding: 28px 18px calc(28px + env(safe-area-inset-bottom)); box-sizing: content-box; }
+.directory-body h2 { margin: 0 0 14px; }
+.directory-search { padding: 0 12px; border: 1px solid var(--line); background: white; border-radius: 12px; }
+.directory-search:focus-within { outline: 2px solid var(--primary, #326449); }
+.directory-search input { border: 0; background: transparent; outline: none; width: 100%; box-shadow: none; }
+.directory-centers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; margin-block: 16px; }
+.directory-center { background: white; border: 1px solid var(--line); border-radius: 14px; padding: 14px; color: var(--deep); }
+.directory-center strong { flex: 1; overflow-wrap: anywhere; }
+.directory-center:hover, .directory-center:focus-visible { border-color: #56866c; background: #f4f9f3; }
+.directory-center .logo-tile, .auth-identity .logo-tile { color: #244f40; }
+.directory footer { justify-content: space-between; flex-wrap: wrap; }
+@media (max-width: 705px) {
+  #root, .app-shell, .main-shell { min-height: 100dvh; }
+  .standalone { padding-block-start: calc(18px + env(safe-area-inset-top)); padding-block-end: calc(20px + env(safe-area-inset-bottom)); }
+  .standalone.local-configuration { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
+  .directory-body, .content, .auth-content, .standalone {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .auth-identity h1 { overflow-wrap: anywhere; }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px);
+    background: #183b34;
+    z-index: 20;
+    pointer-events: none;
+  }
+  body:has(input:focus, textarea:focus) .teacher-mobile-nav { display: none; }
 }
 .auth-link {
   min-height: 44px;

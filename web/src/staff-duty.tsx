@@ -66,8 +66,8 @@ export function StaffDuty({
     void refresh().catch((e) => setError(message(e)));
   }, [c.center.id, date]);
   const canReview = (item: Duty) =>
-    configuration ||
-    (c.center.roles.includes("admin") && c.user.id !== item.employee);
+    (configuration && c.user.platform) ||
+    (c.user.centers.find(center => center.id === c.center.id)?.roles.includes("admin") && c.user.id !== item.employee);
   return (
     <>
       <PageHead

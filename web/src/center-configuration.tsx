@@ -87,7 +87,7 @@ export function CenterConfiguration({
   return (
     <>
       <Tabs
-        value={tab}
+        value={tab === "structure" ? "settings" : tab}
         onChange={onTab}
         items={[
           { value: "settings", name: "الهيكل والموقع" },
@@ -98,7 +98,7 @@ export function CenterConfiguration({
         ]}
       />
       {error && <ErrorBox>{error}</ErrorBox>}
-      {tab === "settings" && <Setup c={c} reloadUser={reload} />}
+      {(tab === "settings" || tab === "structure") && <Setup key={tab} c={c} reloadUser={reload} initialTab={user.platform || tab === "structure" ? "structure" : "profile"} />}
       {tab === "groups" && <Groups c={c} configuration />}
       {tab === "staff" && <StaffPage c={c} />}
       {tab === "duties" && <StaffDuty c={c} configuration />}

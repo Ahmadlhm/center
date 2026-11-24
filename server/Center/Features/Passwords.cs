@@ -46,13 +46,7 @@ public static class Passwords
     public record Provisioned(string Email, string? TemporaryPassword, string? Token);
     public static Provisioned Issue(IdentityData data, string name, string email, Guid center, string[] roles, Guid[] units)
     {
-        var existing = data.Accounts.Find(x => x.Email == email);
-        if (existing != null)
-        {
-            Rules.Require(existing.Active, "هذا الحساب غير نشط.");
-            Rules.Require(!existing.Platform, "استخدم بريدًا مختلفًا عن حساب مدير المنصة.");
-            return new(email, null, Identity.AddInvite(data, name, email, center, roles, units));
-        }
+        Identity.CheckNewAccount(data, email, center);
         var password = Temporary();
         var account = new Account(Guid.NewGuid(), name, email, Identity.Password(password), MustChangePassword: true, TemporaryUntil: DateTimeOffset.UtcNow.AddDays(3));
         data.Accounts.Add(account);
@@ -108,14 +102,14 @@ public static class Passwords
             var token = Identity.Token();
             var path = await store.Change<IdentityData, string?>(Module.Identity, Guid.Empty, data =>
             {
-                var account = data.Accounts.Find(x => x.Email == email && x.Active);
-                if (account == null || (input.Portal is not null && !Identity.MatchesPortal(account, input.Portal))) return null;
+                var account = Identity.LoginAccount(data, email, input.Portal, input.Center);
+                if (account == null) return null;
                 var now = DateTimeOffset.UtcNow;
                 data.PasswordResets.RemoveAll(x => x.Expires <= now);
                 if (data.PasswordResets.Any(x => x.Account == account.Id && x.Expires > now.AddMinutes(28))) return null;
                 data.PasswordResets.RemoveAll(x => x.Account == account.Id);
                 data.PasswordResets.Add(new(account.Id, Identity.Hash(token), now.AddMinutes(30)));
-                return account.Platform ? "/#platform/reset/" : "/#reset/";
+                return account.Platform ? "/admin#reset/" : input.Center is Guid selected ? $"/c/{selected}#reset/" : "/#reset/";
             });
             if (path != null) mail.Enqueue(email, new Uri(new Uri(config["CENTER_ORIGIN"] ?? "http://localhost:5173"), path + token).AbsoluteUri);
             return Results.NoContent();
@@ -128,6 +122,9 @@ public static class Passwords
                 var request = data.PasswordResets.Find(x => x.Hash == Identity.Hash(input.Token) && x.Expires > DateTimeOffset.UtcNow);
                 Rules.Require(request != null, "رابط الاستعادة غير صالح أو منتهٍ.");
                 var account = Rules.Found(data.Accounts.Find(x => x.Id == request!.Account && x.Active));
+                Rules.Require((input.Portal is null || Identity.MatchesPortal(account, input.Portal)) &&
+                    (input.Center is null || data.Memberships.Any(m => m.Account == account.Id && m.Center == input.Center && m.Active)),
+                    "رابط الاستعادة غير صالح لهذا الحساب.");
                 data.Accounts.Upsert(x => x.Id == account.Id, account with { Password = Identity.Password(input.Password), MustChangePassword = false, TemporaryUntil = null });
                 Revoke(data, account.Id);
                 return true;
@@ -136,6 +133,6 @@ public static class Passwords
         }).RequireRateLimiting("public");
     }
     public record Change(string CurrentPassword, string Password);
-    public record Forgot(string Email, string? Portal = null);
-    public record Reset(string Token, string Password);
+    public record Forgot(string Email, string? Portal = null, Guid? Center = null);
+    public record Reset(string Token, string Password, Guid? Center = null, string? Portal = null);
 }

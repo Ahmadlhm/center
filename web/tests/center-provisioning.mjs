@@ -29,6 +29,7 @@ async function firstLogin(client, credentials, roles, center, password) {
   await call(client, "POST", auth + "/login", {
     email: credentials.email,
     password: credentials.temporaryPassword,
+    portal: "center", center,
   });
   const initial = await call(client, "GET", auth + "/me");
   assert.equal(initial.mustChangePassword, true);
@@ -136,17 +137,49 @@ try {
     ...payload,
     name: name + " ب",
   });
-  assert.ok(second.credentials.token);
-  assert.equal(second.credentials.temporaryPassword, null);
-  await call(director, "POST", auth + "/activate", {
-    token: second.credentials.token,
-    password: managerPassword,
-  });
+  assert.ok(second.credentials.temporaryPassword);
+  assert.equal(second.credentials.token, null);
+  const secondAccount = await request.newContext(apiOptions);
+  const login = { email: manager.email, password: managerPassword, portal: "center" };
+  await call(secondAccount, "POST", auth + "/login", { ...login, center: secondId }, 401);
+  await call(secondAccount, "POST", auth + "/login", login, 401);
+  await firstLogin(secondAccount, second.credentials, ["admin"], secondId, "Independent-Second-" + suffix);
+  const secondSession = await call(secondAccount, "GET", auth + "/me");
   const session = await call(director, "GET", auth + "/me");
-  assert.deepEqual(
-    new Set(session.centers.map((center) => center.id)),
-    new Set([id, secondId]),
-  );
+  assert.deepEqual(session.centers.map(c => c.id), [id]);
+  assert.notEqual(session.id, secondSession.id);
+  const local = "/api/centers/" + id;
+  const settings = local + "/people/configuration";
+  await call(director, "GET", settings, undefined, 403);
+  const assign = { roles: ["center-config", "admin"], units: [], active: true };
+  await call(director, "PUT", local + "/identity/staff/" + session.id, assign, 403);
+  await call(context.request, "PUT", local + "/identity/staff/" + session.id, assign);
+  await call(director, "GET", settings);
+  const localUi = await browser.newContext({ baseURL: origin, storageState: await director.storageState(), viewport: { width: 390, height: 844 } });
+  const workspace = await localUi.newPage();
+  await workspace.goto("/c/" + id);
+  await workspace.getByRole("button", { name: "بيانات المركز", exact: true }).waitFor();
+  await workspace.getByRole("link", { name: "الحسابات", exact: true }).click();
+  await workspace.getByRole("button", { name: "إضافة حساب", exact: true }).click();
+  assert.equal(await workspace.getByRole("checkbox", { name: "مدير منصة المركز" }).count(), 0);
+  await workspace.getByRole("button", { name: "إلغاء", exact: true }).click();
+  await workspace.getByRole("link", { name: "العمل اليومي" }).click();
+  await workspace.getByRole("heading", { name: "الدوام الآن" }).waitFor();
+  await localUi.close();
+  await call(director, "GET", "/api/centers/" + secondId + "/people/configuration", undefined, 403);
+  await call(director, "PUT", auth + "/brand", { name: "تجربة" }, 403);
+  await call(director, "POST", local + "/identity/staff/invite", { ...manager, email, roles: ["center-config"], units: [] }, 403);
+  await call(director, "GET", "/api/centers/" + secondId + "/people", undefined, 403);
+  await call(context.request, "PUT", local + "/identity/profile", { name: name + " الأول", timeZone: "Asia/Amman" });
+  const directory = await call(secondAccount, "GET", auth + "/directory");
+  assert.deepEqual(Object.keys(directory.centers.find(c => c.id === id)).sort(), ["id", "logo", "name"]);
+  const reset = await call(context.request, "POST", local + "/identity/staff/" + session.id + "/temporary");
+  assert.ok(reset.temporaryPassword);
+  assert.equal((await call(secondAccount, "GET", auth + "/me")).id, secondSession.id);
+  await call(context.request, "PUT", create + secondId + "/active", { value: false });
+  assert.equal((await call(context.request, "GET", auth + "/directory")).centers.some(c => c.id === secondId), false);
+  await call(secondAccount, "GET", "/api/centers/" + secondId + "/people", undefined, 403);
+  await secondAccount.dispose();
   await call(
     teacher, "GET", "/api/centers/" + secondId + "/people", undefined, 403,
   );
@@ -163,7 +196,7 @@ try {
     ),
     [],
   );
-  console.log("PASS: direct center setup, staff onboarding, reuse of an existing account, and role isolation.");
+  console.log("PASS: directory, independent same-email accounts, credential isolation, scoped configuration and deactivation.");
 } finally {
   await Promise.all([director.dispose(), teacher.dispose(), browser.close()]);
 }

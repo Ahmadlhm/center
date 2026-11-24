@@ -1,4 +1,5 @@
 import { TemporaryCredentials, type IssuedCredentials } from "./passwords";
+import { formLogo } from "./center-directory";
 import { levelName } from "./quran";
 import { useState } from "react";
 import { FolderTree, MapPin, Settings2, UserPlus } from "lucide-react";
@@ -39,11 +40,13 @@ import { Invite } from "./main";
 export function Setup({
   c,
   reloadUser,
+  initialTab = "structure",
 }: {
   c: Context;
   reloadUser: () => Promise<void>;
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState("structure");
+  const [tab, setTab] = useState(initialTab);
   const [modal, setModal] = useState("");
   const [unit, setUnit] = useState<Unit>();
   const [period, setPeriod] = useState<Period>();
@@ -365,20 +368,7 @@ export function Setup({
           title="بيانات المركز"
           close={() => setModal("")}
           submit={async (form) => {
-            const file = form.get("logo");
-            if (file instanceof File && file.size > 300_000)
-              throw new Error("حجم الشعار الأقصى 300 KB.");
-            const logo =
-              file instanceof File && file.size
-                ? await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(String(reader.result));
-                    reader.onerror = reject;
-                    reader.readAsDataURL(file);
-                  })
-                : form.has("removeLogo")
-                  ? ""
-                  : null;
+            const logo = await formLogo(form);
             await api(f(c, "/identity/profile"), "PUT", {
               name: val(form, "name"),
               timeZone: val(form, "timeZone"),
@@ -788,7 +778,7 @@ export function StaffPage({ c }: { c: Context }) {
                 />
               </td>
               <td>
-                {s.id !== c.user.id && (
+                {s.id !== c.user.id && (c.user.platform || !s.roles.includes("center-config")) && (
                   <Button
                     kind="outline"
                     onClick={() => {
@@ -801,12 +791,12 @@ export function StaffPage({ c }: { c: Context }) {
                     تعديل
                   </Button>
                 )}
-                {s.active && (
+                {s.active && s.accountManageable !== false && (
                   <Button kind="outline" onClick={() => setReset(s)}>
                     كلمة مرور مؤقتة
                   </Button>
                 )}
-                {s.active && (
+                {s.active && s.accountManageable !== false && (
                   <Button kind="outline" onClick={() => setClearKeys(s)}>
                     إبطال وسائل إثبات الحضور
                   </Button>
@@ -876,7 +866,7 @@ export function StaffPage({ c }: { c: Context }) {
             <Checks
               value={roles}
               onChange={setRoles}
-              options={["admin", "manager", "teacher"].map((x) => ({
+              options={(c.user.platform ? ["center-config", "admin", "manager", "teacher"] : ["admin", "manager", "teacher"]).map((x) => ({
                 value: x,
                 name: roleLabel([x]),
               }))}
