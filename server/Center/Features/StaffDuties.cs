@@ -35,6 +35,11 @@ public static class StaffDuties
         g.MapPost("/duties/configuration/{id:guid}/review", async (Guid center, Guid id, DateOnly date, Work.CheckReview input, HttpContext http, State store) =>
         {
             var (actor, _) = await Identity.Context(store, http, center, configuration: true);
+            if (!actor.Platform)
+            {
+                var (operational, _) = await Identity.Context(store, http, center);
+                Rules.Require(operational.Admin && operational.Id != input.Teacher, "مراجعة الحضور من صلاحيات مدير المتابعة.", 403);
+            }
             await Ensure(store, center, id, input.Teacher, date);
             return await Work.RecordReview(store, actor, id, input, true);
         });

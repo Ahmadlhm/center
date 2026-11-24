@@ -241,6 +241,7 @@ try {
   const browserErrors = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.goto("/");
+  await page.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await page.getByRole("button", { name: "مدير المركز", exact: true }).click();
   await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   const directory = process.env.CENTER_TEST_ARTIFACTS ?? "../.local";
@@ -281,6 +282,7 @@ try {
     }
   });
   await mobile.goto("/");
+  await mobile.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await mobile.getByRole("button", { name: "معلّم", exact: true }).click();
   await mobile.getByRole("heading", { name: "شُعَبي", exact: true }).waitFor();
   assert.equal(

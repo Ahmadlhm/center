@@ -264,6 +264,7 @@ try {
     await page.getByRole("option", { name, exact: true }).click();
   };
   await page.goto("/");
+  await page.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await page.getByRole("button", { name: "معلّم", exact: true }).click();
   await page.getByRole("heading", { name: "شُعَبي", exact: true }).waitFor();
   await page.goto("/#reports");
@@ -282,7 +283,7 @@ try {
     .getByRole("link", { name: "تفاصيل الدورة", exact: false })
     .first()
     .click();
-  await page.waitForURL("**/#recitation-course/*");
+  await page.waitForURL(url => url.pathname === "/c/e751f402-dbd9-449f-9d01-40b525f06c29" && url.hash.startsWith("#recitation-course/"));
   assert.equal(
     await page.locator(".nav-section a.selected").getAttribute("href"),
     "#recitation",

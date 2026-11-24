@@ -188,6 +188,7 @@ export type Task = {
 };
 export type Work = { checkIns: CheckIn[]; tasks: Task[] };
 export type Staff = {
+  accountManageable?: boolean;
   id: Key;
   name: string;
   roles: string[];
@@ -287,8 +288,8 @@ export const statuses: Record<string, string> = {
 export const label = (key: string | null | undefined) =>
   key ? (statuses[key] ?? key) : "غير مرصود";
 export const roleLabel = (roles: string[]) =>
-  roles.includes("admin")
-    ? "مدير المركز"
+  roles.includes("center-config") ? "مدير منصة المركز" : roles.includes("admin")
+    ? "مدير المتابعة"
     : roles.includes("manager")
       ? "مدير القسم"
       : "معلّم";

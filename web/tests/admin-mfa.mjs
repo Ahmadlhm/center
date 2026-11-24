@@ -54,7 +54,7 @@ try {
     await page.getByLabel(label, { exact: true }).fill(code);
     await page.getByRole("button", { name: "تحقق", exact: true }).click();
   };
-  await page.goto("/");
+  await page.goto("/admin");
   await login("إدارة المنصة");
   const qr = page.getByAltText("رمز QR لإعداد تطبيق التحقق");
   await qr.waitFor();
@@ -132,6 +132,7 @@ try {
   await page.reload();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/c/e751f402-dbd9-449f-9d01-40b525f06c29");
   await login("مدير المركز");
   await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   assert.equal((await post("mfa/totp/setup")).status(), 403);
@@ -148,6 +149,7 @@ try {
   await page.getByText("أُضيف مفتاح المرور").waitFor();
   await logout();
   await page.goto("/");
+  await page.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await page.reload();
   await login("مدير المركز");
   await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();

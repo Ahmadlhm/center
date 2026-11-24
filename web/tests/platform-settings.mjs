@@ -270,6 +270,7 @@ try {
   });
   const page = await context.newPage();
   await page.goto("/");
+  await page.locator('a[href="/c/e751f402-dbd9-449f-9d01-40b525f06c29"]').click();
   await page.getByRole("button", { name: "مدير المركز", exact: true }).click();
   await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   assert.equal(
@@ -288,11 +289,11 @@ try {
       automaticPresenceSimulation: true,
     },
   });
-  await page.goto("/#passkey");
+  await page.goto("/c/e751f402-dbd9-449f-9d01-40b525f06c29#passkey");
   await page.getByRole("button", { name: "إضافة مفتاح مرور" }).click();
   await page.getByRole("button", { name: "متابعة التحقق" }).click();
   await page.getByText("أُضيف مفتاح المرور").waitFor();
-  await page.goto("/#duty");
+  await page.goto("/c/e751f402-dbd9-449f-9d01-40b525f06c29#duty");
   await page.evaluate(() => {
     const get = navigator.credentials.get.bind(navigator.credentials);
     navigator.credentials.get = (options) => {
