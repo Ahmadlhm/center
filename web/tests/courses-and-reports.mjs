@@ -258,20 +258,25 @@ try {
     page
       .locator("label.field")
       .filter({ has: page.getByText(label, { exact: true }) })
-      .locator("select");
+      .getByRole("combobox");
+  const choose = async (label, name) => {
+    await fieldSelect(label).click();
+    await page.getByRole("option", { name, exact: true }).click();
+  };
   await page.goto("/");
   await page.getByRole("button", { name: "معلّم", exact: true }).click();
   await page.getByRole("heading", { name: "شُعَبي", exact: true }).waitFor();
   await page.goto("/#reports");
   await page.getByRole("heading", { name: "التقارير", exact: true }).waitFor();
   assert.equal(await page.locator('option[value="work"]').count(), 0);
-  await fieldSelect("الوحدة").selectOption(group.unit);
-  const groupOptions = await fieldSelect("الشعبة")
-    .locator("option")
-    .allTextContents();
+  await fieldSelect("الوحدة").click();
+  await page.getByRole("option").filter({ hasText: people.units.find((unit) => unit.id === group.unit).name }).first().click();
+  await fieldSelect("الشعبة").click();
+  const groupOptions = await page.getByRole("option").allTextContents();
   assert(groupOptions.includes(group.name));
   assert(!groupOptions.includes(outsider.name));
   assert(groupOptions.length < people.groups.length + 1);
+  await page.keyboard.press("Escape");
   await page.goto("/#recitation");
   await page
     .getByRole("link", { name: "تفاصيل الدورة", exact: false })
@@ -283,10 +288,10 @@ try {
     "#recitation",
   );
   await page.getByRole("button", { name: "جدولة لقاء" }).click();
-  const typeOptions = await fieldSelect("نوع اللقاء")
-    .locator("option")
-    .allTextContents();
+  await fieldSelect("نوع اللقاء").click();
+  const typeOptions = await page.getByRole("option").allTextContents();
   assert.deepEqual(typeOptions, ["نظري", "عملي"]);
+  await page.keyboard.press("Escape");
   assert.equal(
     await page.getByLabel("مسؤول التسميع", { exact: true }).count(),
     0,
@@ -297,8 +302,8 @@ try {
     .getByRole("button", { name: "الدورات والمسابقات", exact: true })
     .click();
   await page.getByRole("button", { name: "إسناد مسابقة" }).click();
-  await fieldSelect("المسابقة").selectOption(competitionId);
-  await fieldSelect("الفئة").selectOption(category.id);
+  await choose("المسابقة", competition.name);
+  await choose("الفئة", category.name);
   await page.getByRole("button", { name: "حفظ", exact: true }).click();
   await page.getByText("أُسندت المسابقة للطالب").waitFor();
   const report = await call(

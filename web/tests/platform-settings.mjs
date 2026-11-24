@@ -271,7 +271,7 @@ try {
   const page = await context.newPage();
   await page.goto("/");
   await page.getByRole("button", { name: "مدير المركز", exact: true }).click();
-  await page.getByRole("heading", { name: /أهلًا أحمد/ }).waitFor();
+  await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   assert.equal(
     await page.locator('.nav-section a[href="#settings"]').count(),
     0,
@@ -321,6 +321,7 @@ try {
   const platformContext = await browser.newContext({ baseURL: origin });
   const ui = await platformContext.newPage();
   await ui.goto("/");
+  await ui.getByRole("link", { name: "بوابة مدير المنصة" }).click();
   await ui.getByRole("button", { name: "إدارة المنصة", exact: true }).click();
   await ui.getByRole("button", { name: "كتالوج المنصة", exact: true }).click();
   await ui.getByText("التمهيدية", { exact: true }).waitFor();
@@ -339,8 +340,9 @@ try {
   await ui
     .locator("label.field")
     .filter({ has: ui.getByText("اختر مركزًا", { exact: true }) })
-    .locator("select")
-    .selectOption(center.split("/").at(-1));
+    .getByRole("combobox")
+    .click();
+  await ui.getByRole("option", { name: profile.name, exact: true }).click();
   await ui.getByRole("button", { name: "قواعد التشغيل", exact: true }).click();
   await ui.getByRole("button", { name: "ضبط القواعد", exact: true }).click();
   const windowField = ui.getByLabel("نافذة الإثبات بعد الموعد بالدقائق");

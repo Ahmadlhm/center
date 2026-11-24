@@ -133,7 +133,7 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await login("مدير المركز");
-  await page.getByText(/أهلًا أحمد/).waitFor();
+  await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   assert.equal((await post("mfa/totp/setup")).status(), 403);
   const before = await (await context.request.get("/api/auth/me")).json();
   assert.equal(before.requiresMfa, false);
@@ -150,7 +150,7 @@ try {
   await page.goto("/");
   await page.reload();
   await login("مدير المركز");
-  await page.getByText(/أهلًا أحمد/).waitFor();
+  await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   const user = await (await context.request.get("/api/auth/me")).json();
   assert.equal(user.requiresMfa, false);
   assert.equal(user.hasPasskey, true);

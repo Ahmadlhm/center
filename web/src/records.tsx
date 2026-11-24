@@ -379,10 +379,9 @@ export function Documents({
               <input name="title" required />
             </Field>
             <Field label="نوع الشهادة">
-              <select name="category">
-                <option value="recitation">التلاوة</option>
-                <option value="competition">المسابقة السنوية</option>
-              </select>
+              <Select name="category" defaultValue="recitation"
+                options={[{ value: "recitation", name: "التلاوة" }, { value: "competition", name: "المسابقة السنوية" }]}
+              />
             </Field>
             {student ? (
               <Field label="الشعبة">
@@ -434,10 +433,9 @@ export function Documents({
             <input name="title" required defaultValue={link.title} />
           </Field>
           <Field label="نوع الشهادة">
-            <select name="category" defaultValue={link.category}>
-              <option value="recitation">التلاوة</option>
-              <option value="competition">المسابقة السنوية</option>
-            </select>
+            <Select name="category" defaultValue={link.category}
+              options={[{ value: "recitation", name: "التلاوة" }, { value: "competition", name: "المسابقة السنوية" }]}
+            />
           </Field>
           <Field label="الطالب المرتبط">
             <Select

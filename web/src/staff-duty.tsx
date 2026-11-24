@@ -20,6 +20,7 @@ import {
   ErrorBox,
   Field,
   PageHead,
+  Select,
   Table,
   val,
 } from "./ui";
@@ -41,7 +42,7 @@ type Duty = {
   shift: Shift | null;
   checkIn: CheckIn | null;
 };
-type DutyList = { date: string; mapUrl?: string | null; items: Duty[] };
+export type DutyList = { date: string; mapUrl?: string | null; items: Duty[] };
 
 export function StaffDuty({
   c,
@@ -263,10 +264,9 @@ export function StaffDuty({
             <>
               {selection.action === "review" && (
                 <Field label="القرار">
-                  <select name="state">
-                    <option value="manual">اعتماد الحضور</option>
-                    <option value="absent">غياب</option>
-                  </select>
+                  <Select name="state" defaultValue="manual"
+                    options={[{ value: "manual", name: "اعتماد الحضور" }, { value: "absent", name: "غياب" }]}
+                  />
                 </Field>
               )}
               <Field label="السبب">

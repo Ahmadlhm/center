@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import {
   active,
+  api,
+  base,
   clock,
   date,
   days,
@@ -31,7 +33,122 @@ import {
   teacherOf,
   type Context,
 } from "./model";
-import { Badge, Button, CardHead, Empty, Table } from "./ui";
+import { Badge, Button, CardHead, Empty, Select, Table } from "./ui";
+import type { DutyList } from "./staff-duty";
+
+const confirmed = (state?: string) => state === "verified" || state === "manual";
+
+function CurrentDuty({ c }: { c: Context }) {
+  const [now, setNow] = useState(() => new Date());
+  const [duties, setDuties] = useState<DutyList>();
+  const [stale, setStale] = useState(false);
+  const { today, groups, students } = c.people;
+  const showStaffShifts = c.center.roles.includes("admin");
+  const dutyUrl = base(c.center) + "/work/duties?date=" + today;
+  const { refresh } = c;
+  useEffect(() => {
+    let live = true;
+    let refreshing = false;
+    const update = async (reload: boolean) => {
+      if (refreshing || (reload && document.hidden)) return;
+      refreshing = true;
+      setNow(new Date());
+      try {
+        await Promise.all([
+          reload && refresh(),
+          showStaffShifts && api<DutyList>(dutyUrl).then((data) => {
+            if (live) setDuties(data);
+          }),
+        ]);
+        if (live) setStale(false);
+      } catch {
+        if (live) setStale(true);
+      } finally {
+        refreshing = false;
+      }
+    };
+    void update(false);
+    const timer = window.setInterval(() => void update(true), 30000);
+    const onVisibility = () => void update(true);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dutyUrl, refresh, showStaffShifts]);
+
+  const localTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone: c.center.timeZone, hour: "2-digit", minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  const during = (from: string, to: string) => clock(from) <= localTime && localTime < clock(to);
+  const todayMeetings = c.education.meetings.filter((meeting) => meeting.date === today);
+  const officialGroups = new Set(todayMeetings.map((meeting) => meeting.group));
+  const liveMeetings = todayMeetings.filter(
+    (meeting) => meeting.state !== "cancelled" && during(meeting.from, meeting.to),
+  );
+  const studentIds = new Set(liveMeetings.flatMap((meeting) =>
+    meeting.marks.filter(({ status }) => status === "present").map(({ student }) => student),
+  ));
+  const teacherIds = new Set(c.work.checkIns.filter((check) =>
+    confirmed(check.state) && liveMeetings.some((meeting) =>
+      meeting.id === check.meeting && meeting.teachers.includes(check.teacher),
+    ),
+  ).map(({ teacher }) => teacher));
+  if (duties?.date === today) {
+    for (const item of duties.items) {
+      if (item.scheduled && item.shift && during(item.shift.from, item.shift.to) && confirmed(item.checkIn?.state)) {
+        teacherIds.add(item.employee);
+      }
+    }
+  }
+  const liveStudents = students.filter(({ id }) => studentIds.has(id));
+  const liveTeachers = c.staff.filter((teacher) => teacher.roles.includes("teacher") && teacherIds.has(teacher.id));
+  const liveGroups = groups.flatMap((group) => {
+    const meeting = liveMeetings.find((item) => item.group === group.id);
+    const scheduled = !officialGroups.has(group.id) && group.start <= today &&
+      (!group.end || today < group.end) &&
+      group.days.includes(dayOf(today)) && during(group.from, group.to);
+    return meeting || scheduled ? [{ group, meeting }] : [];
+  });
+  return (
+    <section className="card current-duty">
+      <header className="card-head">
+        <div>
+          <h1>الدوام الآن</h1>
+          <p>يتحدّث تلقائيًا بحسب توقيت المركز وكشوف الحضور.</p>
+        </div>
+        <span className="duty-clock"><Clock3 size={16} /><bdi>{localTime}</bdi></span>
+      </header>
+      {stale && <p className="duty-notice" role="status">تعذّر تحديث الدوام. تظهر آخر البيانات المتاحة.</p>}
+      <div className="current-duty-grid">
+        <div className="duty-column">
+          <h3><FolderTree size={18} /> الشعب في الدوام <b>{fmt(liveGroups.length)}</b></h3>
+          {liveGroups.length ? <ul>{liveGroups.map(({ group, meeting }) => (
+            <li key={group.id}>
+              <a href={meeting ? "#meeting/" + meeting.id : "#group/" + group.id}>{group.name}</a>
+              <small dir="ltr">{clock(meeting?.from ?? group.from)} – {clock(meeting?.to ?? group.to)}</small>
+              {!meeting && <small>لم يُفتح الكشف</small>}
+            </li>
+          ))}</ul> : <p>لا توجد شعب في الدوام الآن.</p>}
+        </div>
+        <div className="duty-column">
+          <h3><Users size={18} /> الطلاب الحاضرون <b>{fmt(liveStudents.length)}</b></h3>
+          {liveStudents.length ? <ul>{liveStudents.map(({ id, name }) => (
+            <li key={id}><a href={"#student/" + id}>{name}</a></li>
+          ))}</ul> : <p>لم يُرصد حضور طلاب في الحصص الحالية.</p>}
+        </div>
+        <div className="duty-column">
+          <h3><UserCheck size={18} /> المعلّمون الحاضرون <b>{fmt(liveTeachers.length)}</b></h3>
+          {liveTeachers.length ? <ul>{liveTeachers.map(({ id, name }) => (
+            <li key={id}>{name}</li>
+          ))}</ul> : <p>لا يوجد حضور مؤكّد لمعلّمين الآن.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function rate(c: Context, from: string, end: string) {
   const currentByDate = latestRulesByDate(c.people.rules);
@@ -171,29 +288,7 @@ export function Dashboard({ c }: { c: Context }) {
           تصدير تقرير
         </Button>
       </header>
-      <section className="greeting">
-        <div className="hero-art">
-          <div />
-          <div />
-          <div />
-        </div>
-        <div className="hero-text">
-          <div className="hero-label">
-            <span />
-            {c.center.name}
-          </div>
-          <h1>أهلًا {c.user.name.split(" ")[0]}، طاب يومك</h1>
-          <p>تابع حلقات اليوم، وحضور الطلاب، وإنجاز المعلّمين من مكان واحد.</p>
-          <div className="hero-actions">
-            <Button kind="light" onClick={() => go("groups")}>
-              عرض الشعب <ArrowLeft size={16} />
-            </Button>
-            <a href="#work">
-              متابعة المعلّمين <ChevronLeft size={15} />
-            </a>
-          </div>
-        </div>
-      </section>
+      <CurrentDuty c={c} />
       <div className="section-title">
         <h2>نظرة عامة</h2>
         <span>
@@ -218,15 +313,16 @@ export function Dashboard({ c }: { c: Context }) {
       <div className="dashboard-grid">
         <section className="card chart-card">
           <CardHead title="نسبة الحضور" desc="متابعة حضور الطلاب خلال الأسبوع">
-            <select
+            <Select
               className="compact-select"
               value={week}
-              onChange={(e) => setWeek(e.target.value)}
+              onChange={setWeek}
               aria-label="فترة الرسم"
-            >
-              <option value="current">آخر 7 أيام</option>
-              <option value="previous">الأسبوع السابق</option>
-            </select>
+              options={[
+                { value: "current", name: "آخر 7 أيام" },
+                { value: "previous", name: "الأسبوع السابق" },
+              ]}
+            />
           </CardHead>
           <AttendanceChart c={c} end={end} />
         </section>

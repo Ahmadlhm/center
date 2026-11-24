@@ -147,7 +147,8 @@ public static class Identity
             await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
             {
                 var a = data.Accounts.Find(x => x.Active && x.Email == email);
-                Rules.Require(a != null && (a.TemporaryUntil is null || a.TemporaryUntil > DateTimeOffset.UtcNow) && CheckPassword(a, input.Password),
+                Rules.Require(a != null && (a.TemporaryUntil is null || a.TemporaryUntil > DateTimeOffset.UtcNow) && CheckPassword(a, input.Password) &&
+                    (input.Portal is null || MatchesPortal(a, input.Portal)),
                     "البريد أو كلمة المرور غير صحيحة.", 401);
                 data.Sessions.RemoveAll(x => x.Expires <= DateTimeOffset.UtcNow);
                 var authenticator = a!.Platform && store.RequireMfa ? PlatformAuthenticator.Pending : null;
@@ -403,7 +404,9 @@ public static class Identity
     }
     public record StaffLookup(Guid Center);
     public record StaffView(Guid Id, string Name, string[] Roles, Guid[] Units, bool Active);
-    public record Login(string Email, string Password);
+    public record Login(string Email, string Password, string? Portal = null);
+    internal static bool MatchesPortal(Account account, string portal) =>
+        portal == (account.Platform ? "platform" : "center");
     public record Apply(string Name, string Contact, string Email);
     public record Decision(bool Approve, string? Reason, bool Temporary = false);
     public record CenterDirector(string Name, string Email);
