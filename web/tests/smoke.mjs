@@ -272,7 +272,7 @@ try {
   await mobile.getByRole("button", { name: "معلّم", exact: true }).click();
   await mobile.getByRole("heading", { name: "شُعَبي", exact: true }).waitFor();
   assert.equal(
-    await mobile.locator(".group-card").count(),
+    await mobile.locator('.teacher-day a[href^="#group/"]').count(),
     limited.groups.length,
   );
   await mobile.screenshot({
@@ -380,7 +380,9 @@ try {
   await mobile
     .getByLabel("ما الذي قُدّم في اللقاء؟")
     .fill("درس تجريبي في أحكام التلاوة");
-  await mobile.getByRole("button", { name: "اعتماد الكشف" }).click();
+  await mobile.getByRole("button", { name: "مراجعة الكشف", exact: true }).click();
+  await mobile.getByRole("dialog", { name: "مراجعة كشف الحصة" })
+    .getByRole("button", { name: "اعتماد الكشف" }).click();
   await mobile.getByText("اعتُمد الكشف").waitFor();
   const saved = await json(
     admin,

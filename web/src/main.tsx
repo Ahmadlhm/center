@@ -34,7 +34,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import "@fontsource-variable/noto-sans-arabic";
+import "@fontsource/scheherazade-new/400.css";
+import "@fontsource/scheherazade-new/700.css";
 import "./style.css";
 import logo from "../../logo.png";
 import {
@@ -791,7 +792,7 @@ function Workspace({
       )
       .map((i) => ({
         ...i,
-        name: i.key === "groups" && isTeacher && !isAdmin ? "شُعَبي" : i.name,
+        name: i.key === "groups" && isTeacher && !isManager ? "شُعَبي" : i.name,
       })),
   }));
   const current =
@@ -800,7 +801,7 @@ function Workspace({
       {
         group: "لوحة الشعبة",
         student: "ملف الطالب",
-        meeting: "كشف اللقاء",
+        meeting: "كشف الحصة",
         course: recitationDetail ? "تفاصيل دورة التلاوة" : "تفاصيل الدورة",
         "recitation-course": "تفاصيل دورة التلاوة",
         import: "استيراد الطلاب",
@@ -952,6 +953,7 @@ function Workspace({
             <div className="divider" />
             <button
               className="account"
+              aria-label={user.name + " · " + roleLabel(center.roles)}
               onClick={() => setMenu(!menu)}
               aria-expanded={menu}
             >
@@ -1008,6 +1010,20 @@ function Workspace({
             </div>
           ) : null}
         </main>
+        {!isManager && isTeacher && (
+          <nav className="teacher-mobile-nav" aria-label="العمل اليومي">
+            {nav[0].items.filter(({ key }) => ["groups", "tasks", "duty"].includes(key))
+              .map(({ key, name, icon: Icon }) => {
+                const selected = key === route || (key === "groups" && ["group", "meeting"].includes(route));
+                return (
+                  <a href={"#" + key} key={key} aria-current={selected ? "page" : undefined}>
+                    <span><Icon size={20} /></span>
+                    {key === "duty" ? "الدوام" : name}
+                  </a>
+                );
+              })}
+          </nav>
+        )}
       </div>
       {search && ctx && (
         <Dialog title="البحث في المركز" close={() => setSearch(false)}>
