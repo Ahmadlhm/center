@@ -39,6 +39,18 @@ const email = "center-" + unique + "@test.local";
 let browser;
 try {
   await Promise.all([
+    expectResponse(applicant, "POST", "/api/auth/login", {
+      email: "platform@demo.local",
+      password: "Demo-Platform-2026!",
+      portal: "center",
+    }, 401),
+    expectResponse(teacher, "POST", "/api/auth/login", {
+      email: "teacher@demo.local",
+      password: "Demo-Teacher-2026!",
+      portal: "platform",
+    }, 401),
+  ]);
+  await Promise.all([
     login(admin, "admin@demo.local", "Demo-Admin-2026!"),
     login(teacher, "teacher@demo.local", "Demo-Teacher-2026!"),
     login(platform, "platform@demo.local", "Demo-Platform-2026!"),
@@ -230,7 +242,7 @@ try {
   page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.goto("/");
   await page.getByRole("button", { name: "مدير المركز", exact: true }).click();
-  await page.getByRole("heading", { name: /أهلًا أحمد/ }).waitFor();
+  await page.getByRole("heading", { name: "الدوام الآن" }).waitFor();
   const directory = process.env.CENTER_TEST_ARTIFACTS ?? "../.local";
   fs.mkdirSync(directory, { recursive: true });
   await page.screenshot({ path: directory + "/dashboard.png", fullPage: true });
@@ -391,6 +403,15 @@ try {
   );
   assert.equal(saved.meeting.state, "final");
   assert.equal(saved.attendanceWindow, null);
+  await page.goto("/?duty=1#home");
+  const duty = page.locator(".current-duty");
+  await duty.getByRole("heading", { name: "الدوام الآن", exact: true }).waitFor();
+  assert(await duty.getByRole("link", { name: group.name, exact: true }).count());
+  assert(await duty.getByRole("link", {
+    name: full.students.find(({ id }) => id === enrollment.student).name,
+    exact: true,
+  }).count());
+  assert(await duty.getByText("محمد العلي", { exact: true }).count());
   assert.equal(
     await mobile.getByRole("button", { name: "إثبات حضوري" }).count(),
     0,

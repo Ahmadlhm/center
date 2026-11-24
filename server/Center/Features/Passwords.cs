@@ -106,18 +106,18 @@ public static class Passwords
             if (!mail.Available) return Results.NoContent();
             var email = Rules.OriginalEmail(input.Email);
             var token = Identity.Token();
-            var delivery = await store.Change<IdentityData, bool>(Module.Identity, Guid.Empty, data =>
+            var path = await store.Change<IdentityData, string?>(Module.Identity, Guid.Empty, data =>
             {
                 var account = data.Accounts.Find(x => x.Email == email && x.Active);
-                if (account == null) return false;
+                if (account == null || (input.Portal is not null && !Identity.MatchesPortal(account, input.Portal))) return null;
                 var now = DateTimeOffset.UtcNow;
                 data.PasswordResets.RemoveAll(x => x.Expires <= now);
-                if (data.PasswordResets.Any(x => x.Account == account.Id && x.Expires > now.AddMinutes(28))) return false;
+                if (data.PasswordResets.Any(x => x.Account == account.Id && x.Expires > now.AddMinutes(28))) return null;
                 data.PasswordResets.RemoveAll(x => x.Account == account.Id);
                 data.PasswordResets.Add(new(account.Id, Identity.Hash(token), now.AddMinutes(30)));
-                return true;
+                return account.Platform ? "/#platform/reset/" : "/#reset/";
             });
-            if (delivery) mail.Enqueue(email, new Uri(new Uri(config["CENTER_ORIGIN"] ?? "http://localhost:5173"), "/#reset/" + token).AbsoluteUri);
+            if (path != null) mail.Enqueue(email, new Uri(new Uri(config["CENTER_ORIGIN"] ?? "http://localhost:5173"), path + token).AbsoluteUri);
             return Results.NoContent();
         }).RequireRateLimiting("public");
         g.MapPost("/password/reset", async (Reset input, State store) =>
@@ -136,6 +136,6 @@ public static class Passwords
         }).RequireRateLimiting("public");
     }
     public record Change(string CurrentPassword, string Password);
-    public record Forgot(string Email);
+    public record Forgot(string Email, string? Portal = null);
     public record Reset(string Token, string Password);
 }

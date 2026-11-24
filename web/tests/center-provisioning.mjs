@@ -61,6 +61,7 @@ try {
   const email = "teacher-" + suffix + "@example.test";
 
   await page.goto("/");
+  await page.getByRole("link", { name: "بوابة مدير المنصة" }).click();
   await page.getByRole("button", { name: "إدارة المنصة", exact: true }).click();
   await page.getByRole("button", { name: "إضافة مركز", exact: true }).click();
   const dialog = page.getByRole("dialog");

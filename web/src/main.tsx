@@ -28,7 +28,6 @@ import {
   Menu,
   Search,
   ShieldCheck,
-  Sparkles,
   Trophy,
   UserRound,
   Users,
@@ -121,6 +120,9 @@ const sections = [
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [hash, setHash] = useState(location.hash.slice(1));
+  const platformAuth = /^platform\/(login|forgot|reset\/[^/]+)$/.test(hash);
+  const platformPortal = platformAuth || (!session && hash === "platform");
+  const authPath = platformAuth ? hash.slice("platform/".length) : hash;
   useEffect(() => {
     const change = () => setHash(location.hash.slice(1));
     const expired = () => setSession(null);
@@ -144,7 +146,7 @@ function App() {
   const logout = async () => {
     await api("/api/auth/logout", "POST");
     setSession(null);
-    go("");
+    go(session?.platform ? "platform/login" : "");
   };
   if (session === undefined)
     return (
@@ -153,8 +155,8 @@ function App() {
         <p>جارٍ فتح المنصة…</p>
       </div>
     );
-  if (!session || hash.startsWith("reset/"))
-    return <Auth key={hash} hash={hash} login={load} />;
+  if (!session || platformAuth || authPath.startsWith("reset/"))
+    return <Auth key={hash} hash={authPath} platform={platformPortal} login={load} />;
   if (session.mustChangePassword)
     return <ChangePassword forced done={load} logout={logout} />;
   if (session.platform && session.requiresMfa)
@@ -188,7 +190,15 @@ const demos = [
     pass: "Demo-Platform-2026!",
   },
 ];
-function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
+function Auth({
+  hash,
+  platform,
+  login,
+}: {
+  hash: string;
+  platform: boolean;
+  login: () => Promise<void>;
+}) {
   const [demo, setDemo] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
@@ -198,14 +208,16 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
   const forgot = hash === "forgot";
   const reset = hash.startsWith("reset/");
   const signInPage = !apply && !activate && !forgot && !reset;
+  const portal = platform ? "platform" : "center";
+  const loginLink = platform ? "#platform/login" : "#";
   useEffect(() => {
     void api<{ demo: boolean }>("/api/auth/info")
       .then((x) => setDemo(x.demo))
       .catch(() => {});
   }, []);
   async function signIn(email: string, password: string) {
-    await api("/api/auth/login", "POST", { email, password });
-    go("");
+    await api("/api/auth/login", "POST", { email, password, portal });
+    go(platform ? "platform" : "");
     await login();
   }
   async function run(fn: () => Promise<void>) {
@@ -227,6 +239,7 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
       if (forgot) {
         await api("/api/auth/password/forgot", "POST", {
           email: val(f, "email"),
+          portal,
         });
         setDone(
           "إذا كان البريد مسجّلًا ستصلك رسالة الاستعادة عند تفعيل البريد. تواصل مع مدير المنصة إذا لم تصلك.",
@@ -266,19 +279,11 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
             <img src={logo} alt="جمعية المحافظة على القرآن الكريم" />
           </div>
           <p>إدارة المراكز القرآنية</p>
-          <h1>
-            منظومة واحدة
-            <br />
-            لكل حلقاتك.
-          </h1>
-          <span>الطلاب، والشعب، والتلاوة، في مكان واحد.</span>
+          <h1>{platform ? "إدارة المنصة" : "بوابة المراكز القرآنية"}</h1>
         </div>
       </section>
       <section className="auth-content">
         <div className="auth-form">
-          <div className="mini-brand">
-            <Sparkles size={17} /> بوابة الموظفين
-          </div>
           <h2>
             {forgot
               ? "نسيت كلمة المرور"
@@ -288,7 +293,7 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
                   ? "انضمام مركز جديد"
                   : activate
                     ? "تفعيل الحساب"
-                    : "تسجيل الدخول"}
+                    : platform ? "دخول مدير المنصة" : "دخول المركز"}
           </h2>
           <p>
             {forgot
@@ -299,7 +304,9 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
                   ? "أرسل بيانات المركز لتراجعها إدارة المنصة."
                   : activate
                     ? "اختر كلمة مرور لحساب الموظف الخاص بك."
-                    : "أدخل بيانات حسابك للانتقال إلى مركزك."}
+                    : platform
+                      ? "أدخل بيانات حساب إدارة المنصة، ثم رمز التحقق من التطبيق."
+                      : "للمديرين والمعلّمين في المراكز المسجّلة."}
           </p>
           {error && <ErrorBox>{error}</ErrorBox>}
           {done ? (
@@ -360,7 +367,7 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
                       ? "إرسال الطلب"
                       : activate
                         ? "تفعيل حسابي"
-                        : "دخول المنصة"}
+                        : "تسجيل الدخول"}
                 <ArrowLeft size={17} />
               </Button>
             </form>
@@ -369,7 +376,7 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
             <div className="demo">
               <small>تجربة المنصة ببيانات نموذجية</small>
               <div>
-                {demos.map((d) => (
+                {demos.filter((d) => (d.email === "platform@demo.local") === platform).map((d) => (
                   <Button
                     key={d.email}
                     kind="outline"
@@ -384,17 +391,22 @@ function Auth({ hash, login }: { hash: string; login: () => Promise<void> }) {
           )}
           {signInPage && (
             <div>
-              <a className="auth-link" href="#forgot">
+              <a className="auth-link" href={platform ? "#platform/forgot" : "#forgot"}>
                 نسيت كلمة المرور؟
               </a>
             </div>
           )}
-          <a className="auth-link" href={signInPage ? "#apply" : "#"}>
-            {!signInPage
-              ? "العودة إلى تسجيل الدخول"
-              : "يريد مركزك الانضمام؟ قدّم طلبًا"}{" "}
-            <ArrowLeft size={15} />
-          </a>
+          {!signInPage ? (
+            <a className="auth-link" href={loginLink}>العودة إلى تسجيل الدخول <ArrowLeft size={15} /></a>
+          ) : (
+            <div className="auth-switch">
+              {!platform && <a className="auth-link" href="#apply">انضمام مركز جديد</a>}
+              <a className="auth-link" href={platform ? "#" : "#platform/login"}>
+                {platform ? "بوابة دخول المركز" : "بوابة مدير المنصة"}
+                <ArrowLeft size={15} />
+              </a>
+            </div>
+          )}
         </div>
       </section>
     </main>

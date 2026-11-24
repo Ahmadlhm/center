@@ -6,9 +6,11 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import * as SelectMenu from "@radix-ui/react-select";
 import {
   X,
   ChevronLeft,
+  ChevronDown,
   FolderOpen,
   Search,
   AlertCircle,
@@ -213,28 +215,67 @@ export function Select({
   options,
   value,
   onChange,
+  defaultValue,
+  name,
+  className,
+  disabled,
+  "aria-label": ariaLabel,
   required = false,
   placeholder,
 }: {
   options: Option[];
-  value: string;
-  onChange: (v: string) => void;
+  value?: string;
+  onChange?: (v: string) => void;
+  defaultValue?: string;
+  name?: string;
+  className?: string;
+  disabled?: boolean;
+  "aria-label"?: string;
   required?: boolean;
   placeholder?: string;
 }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [container, setContainer] = useState<HTMLDialogElement | null>(null);
+  // The empty filter is selectable. Required fields retain native form validation.
+  const empty = "__empty__";
+  const encoded = value === "" ? (required || !placeholder ? undefined : empty) : value;
+  const [selected, setSelected] = useState(defaultValue);
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+    <SelectMenu.Root
+      dir="rtl"
+      name={name}
       required={required}
+      disabled={disabled}
+      value={(value === undefined ? selected : encoded) ?? ""}
+      onOpenChange={(open) => {
+        if (open) setContainer(trigger.current?.closest("dialog") ?? null);
+      }}
+      onValueChange={(next) => {
+        if (next && next !== empty) setSelected(next);
+        onChange?.(next === empty ? "" : next);
+      }}
     >
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map((x) => (
-        <option value={x.value} key={x.value}>
-          {x.name}
-        </option>
-      ))}
-    </select>
+      <SelectMenu.Trigger
+        ref={trigger}
+        className={["select-trigger", className].filter(Boolean).join(" ")}
+        aria-label={ariaLabel}
+      >
+        <SelectMenu.Value placeholder={placeholder ?? "اختر"} />
+        <SelectMenu.Icon asChild><ChevronDown size={16} /></SelectMenu.Icon>
+      </SelectMenu.Trigger>
+      <SelectMenu.Portal container={container}>
+        <SelectMenu.Content className="select-menu" position="popper" align="start" sideOffset={5} collisionPadding={10}>
+          <SelectMenu.Viewport>
+            {(placeholder && !required ? [{ value: empty, name: placeholder }, ...options] : options).map((option) => (
+              <SelectMenu.Item key={option.value} value={option.value} className="select-option">
+                <SelectMenu.ItemText>{option.name}</SelectMenu.ItemText>
+                <SelectMenu.ItemIndicator><Check size={16} /></SelectMenu.ItemIndicator>
+              </SelectMenu.Item>
+            ))}
+          </SelectMenu.Viewport>
+        </SelectMenu.Content>
+      </SelectMenu.Portal>
+    </SelectMenu.Root>
   );
 }
 export const options = (rows: { id: string; name: string }[]) =>

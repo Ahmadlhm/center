@@ -386,10 +386,9 @@ export function FollowTeachers({ c }: { c: Context }) {
           }}
         >
           <Field label="النتيجة">
-            <select name="state">
-              <option value="manual">اعتماد حضور يدويًا</option>
-              <option value="absent">غياب معتمد</option>
-            </select>
+            <Select name="state" defaultValue="manual"
+              options={[{ value: "manual", name: "اعتماد حضور يدويًا" }, { value: "absent", name: "غياب معتمد" }]}
+            />
           </Field>
           <Field label="سبب القرار">
             <textarea name="reason" required />

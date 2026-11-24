@@ -348,16 +348,14 @@ function CourseForm({
           </Field>
         )}
         <Field label="حالة الدورة">
-          <select name="status" defaultValue={course?.status ?? "active"}>
-            <option value="active">قائمة</option>
-            <option value="closed">منتهية</option>
-          </select>
+          <Select name="status" defaultValue={course?.status ?? "active"}
+            options={[{ value: "active", name: "قائمة" }, { value: "closed", name: "منتهية" }]}
+          />
         </Field>
         <Field label="معيار الاجتياز">
-          <select name="criterion" defaultValue={course?.criterion ?? "manual"}>
-            <option value="manual">اعتماد المعلّم</option>
-            <option value="complete">حضور جميع اللقاءات</option>
-          </select>
+          <Select name="criterion" defaultValue={course?.criterion ?? "manual"}
+            options={[{ value: "manual", name: "اعتماد المعلّم" }, { value: "complete", name: "حضور جميع اللقاءات" }]}
+          />
         </Field>
         {!isAdmin && type !== "private" && !course && (
           <Field label="التكليف الإداري" wide>
@@ -786,17 +784,18 @@ export function CourseDetail({ c, id }: { c: Context; id: string }) {
           }}
         >
           <Field label="النتيجة">
-            <select
+            <Select
               name="state"
               defaultValue={
                 data.grades.find((x) => x.student === student)?.state ??
                 "registered"
               }
-            >
-              <option value="registered">مسجّل</option>
-              <option value="completed">أكمل الدورة</option>
-              <option value="passed">اجتاز التقييم</option>
-            </select>
+              options={[
+                { value: "registered", name: "مسجّل" },
+                { value: "completed", name: "أكمل الدورة" },
+                { value: "passed", name: "اجتاز التقييم" },
+              ]}
+            />
           </Field>
         </Dialog>
       )}

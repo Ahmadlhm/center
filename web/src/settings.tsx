@@ -435,6 +435,10 @@ function UnitForm({
   close: () => void;
 }) {
   const [parent, setParent] = useState(item?.parent ?? "");
+  const kinds = c.catalog.unitKinds;
+  const initialKind = item?.kind ?? kinds[0] ?? "";
+  const [kind, setKind] = useState(initialKind);
+  const [customKind, setCustomKind] = useState(!kinds.includes(initialKind));
   return (
     <Dialog
       title={item ? "تعديل الوحدة" : "إضافة وحدة تنظيمية"}
@@ -442,7 +446,7 @@ function UnitForm({
       submit={async (form) => {
         await api(f(c, "/people/units/" + (item?.id ?? uid())), "PUT", {
           name: val(form, "name"),
-          kind: val(form, "kind"),
+          kind,
           parent: parent || null,
           active: !form.has("inactive"),
         });
@@ -454,19 +458,23 @@ function UnitForm({
         <input name="name" defaultValue={item?.name} required />
       </Field>
       <Field label="تسمية المستوى">
-        <input
-          name="kind"
-          list="unit-kind-options"
-          defaultValue={item?.kind ?? c.catalog.unitKinds[0] ?? ""}
-          required
-          placeholder="فرع، قسم، برنامج…"
+        <Select
+          options={[
+            ...kinds.map((name) => ({ value: name, name })),
+            { value: "__custom__", name: "تسمية أخرى" },
+          ]}
+          value={customKind ? "__custom__" : kind}
+          onChange={(value) => {
+            setCustomKind(value === "__custom__");
+            setKind(value === "__custom__" ? "" : value);
+          }}
         />
-        <datalist id="unit-kind-options">
-          {c.catalog.unitKinds.map((x) => (
-            <option key={x} value={x} />
-          ))}
-        </datalist>
       </Field>
+      {customKind && (
+        <Field label="التسمية المخصصة">
+          <input value={kind} onChange={(event) => setKind(event.target.value)} required />
+        </Field>
+      )}
       {
         <Field label="الوحدة الأصل">
           <Select
