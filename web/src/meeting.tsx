@@ -3,6 +3,7 @@ import { AttendanceProof } from "./passkey-action";
 import {
   BookOpen,
   Check,
+  ChevronDown,
   Clock3,
   Fingerprint,
   Plus,
@@ -112,6 +113,46 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
     : (c.education.courses.find((x) => x.id === m.course)?.name ??
       "لقاء الدورة");
   const query = f(c, "/work/checkins/" + id);
+  const attendance = [
+    { value: "present", name: "حاضر" },
+    { value: "absent", name: "غائب" },
+    { value: "excused", name: "غائب بعذر" },
+  ];
+  const studentName = (row: Mark) =>
+    data.students.find((s) => s.id === row.student)?.name ?? "—";
+  const attendanceField = (row: Mark) => canMark ? (
+    <Select
+      value={row.status ?? ""}
+      onChange={(value) => update(row.student, { status: value || null })}
+      placeholder="غير مرصود"
+      options={attendance}
+    />
+  ) : <Badge value={row.status} />;
+  const practiceField = (row: Mark) => canPractice ? (
+    <Select
+      value={row.practice ?? ""}
+      onChange={(value) => {
+        if (value === "done" || value === "skip") {
+          if (value === "skip") update(row.student, { practice: "skip" });
+          setReading(row.student);
+        } else {
+          update(row.student, { practice: value || null, readings: [], note: null });
+        }
+      }}
+      placeholder="غير مرصود"
+      options={[
+        { value: "done", name: "تم التسميع" },
+        { value: "skip", name: "لم يسمّع اليوم" },
+        { value: "optional", name: "غير مطلوب" },
+      ]}
+    />
+  ) : ({ done: "تم التسميع", skip: "لم يسمّع", optional: "غير مطلوب" }[row.practice ?? ""] ?? "—");
+  const readingsButton = (row: Mark) => canPractice ? (
+    <Button kind="ghost" onClick={() => setReading(row.student)}>
+      <Plus size={15} />
+      {row.readings.length ? fmt(row.readings.length) + " مقاطع" : "تسجيل التسميع"}
+    </Button>
+  ) : fmt(row.readings.length);
   async function save(finalize: boolean, reason?: string) {
     setBusy(true);
     setError("");
@@ -138,7 +179,7 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
       );
     } catch (e) {
       setError(message(e));
-      if (reason) throw e;
+      if (finalize) throw e;
     } finally {
       setBusy(false);
     }
@@ -146,9 +187,9 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
   return (
     <>
       <PageHead
-        title={title}
+        title="كشف الحصة"
         desc={
-          date(m.date, true) +
+          title + " · " + date(m.date, true) +
           " · " +
           clock(m.from) +
           " – " +
@@ -166,7 +207,7 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                   : "#courses"
             }
           >
-            عودة
+            {m.group ? "لوحة الشعبة" : "العودة إلى الدورة"}
           </a>
         }
       >
@@ -248,7 +289,7 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
         )}
       </div>
       <div className="card panel">
-        <h2>درس اللقاء</h2>
+        <h2>الدرس المُعطى</h2>
         <div className="form-grid">
           <Field label="ما الذي قُدّم في اللقاء؟" wide>
             <textarea
@@ -302,91 +343,36 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
           )}
         </CardHead>
         {marks.length ? (
-          <Table
-            headers={
-              withMemorization
-                ? ["الطالب", "الحضور", "التسميع", "المقاطع"]
-                : ["الطالب", "الحضور"]
-            }
-          >
-            {marks.map((row) => (
-              <tr key={row.student}>
-                <td>
-                  {data.students.find((s) => s.id === row.student)?.name ?? "—"}
-                </td>
-                <td>
-                  {canMark ? (
-                    <Select
-                      value={row.status ?? ""}
-                      onChange={(v) =>
-                        update(row.student, { status: v || null })
-                      }
-                      placeholder="غير مرصود"
-                      options={[
-                        { value: "present", name: "حاضر" },
-                        { value: "absent", name: "غائب" },
-                        { value: "excused", name: "غائب بعذر" },
-                      ]}
-                    />
-                  ) : (
-                    <Badge value={row.status} />
-                  )}
-                </td>
-                {withMemorization && (
-                  <>
-                    <td>
-                      {canPractice ? (
-                        <Select
-                          value={row.practice ?? ""}
-                          onChange={(v) => {
-                            if (v === "done" || v === "skip") {
-                              setReading(row.student);
-                              if (v === "skip")
-                                update(row.student, { practice: "skip" });
-                            } else
-                              update(row.student, {
-                                practice: v || null,
-                                readings: [],
-                                note: null,
-                              });
-                          }}
-                          placeholder="غير مرصود"
-                          options={[
-                            { value: "done", name: "تم التسميع" },
-                            { value: "skip", name: "لم يسمّع اليوم" },
-                            { value: "optional", name: "غير مطلوب" },
-                          ]}
-                        />
-                      ) : row.practice === "done" ? (
-                        "تم التسميع"
-                      ) : row.practice === "skip" ? (
-                        "لم يسمّع"
-                      ) : row.practice === "optional" ? (
-                        "غير مطلوب"
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>
-                      {canPractice ? (
-                        <Button
-                          kind="ghost"
-                          onClick={() => setReading(row.student)}
-                        >
-                          <Plus size={15} />
-                          {row.readings.length
-                            ? fmt(row.readings.length) + " مقاطع"
-                            : "تسجيل التسميع"}
-                        </Button>
-                      ) : (
-                        fmt(row.readings.length)
-                      )}
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </Table>
+          <>
+            <div className="meeting-rows">
+              <Table headers={withMemorization ? ["الطالب", "الحضور", "التسميع", "المقاطع"] : ["الطالب", "الحضور"]}>
+                {marks.map((row) => (
+                  <tr key={row.student}>
+                    <td>{studentName(row)}</td>
+                    <td>{attendanceField(row)}</td>
+                    {withMemorization && <td>{practiceField(row)}</td>}
+                    {withMemorization && <td>{readingsButton(row)}</td>}
+                  </tr>
+                ))}
+              </Table>
+            </div>
+            <div className="meeting-cards">
+              {marks.map((row) => (
+                <details key={row.student}>
+                  <summary>
+                    <strong>{studentName(row)}</strong>
+                    <Badge value={row.status} text={row.status ? undefined : "لم يُرصد"} />
+                    <ChevronDown size={16} />
+                  </summary>
+                  <div className="form-grid">
+                    <Field label="الحضور" wide>{attendanceField(row)}</Field>
+                    {withMemorization && <Field label="التسميع" wide>{practiceField(row)}</Field>}
+                    {withMemorization && <div className="wide">{readingsButton(row)}</div>}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </>
         ) : (
           <Empty title="كشف الحصة فارغ" />
         )}
@@ -408,13 +394,28 @@ export function MeetingDetail({ c, id }: { c: Context; id: string }) {
                 <Save size={16} />
                 حفظ مسودة
               </Button>
-              <Button onClick={() => void save(true)} disabled={busy}>
+              <Button onClick={() => setModal("finalize")} disabled={busy}>
                 <Check size={17} />
-                اعتماد الكشف
+                مراجعة الكشف
               </Button>
             </>
           )}
         </div>
+      )}
+      {modal === "finalize" && (
+        <Dialog
+          title="مراجعة كشف الحصة"
+          close={() => setModal("")}
+          submit={() => save(true)}
+          confirm="اعتماد الكشف"
+        >
+          <dl className="meeting-review">
+            {[...attendance, { value: null, name: "لم يُرصد" }].map(({ value, name }) => (
+              <div key={name}><dt>{name}</dt><dd>{fmt(marks.filter((row) => row.status === value).length)}</dd></div>
+            ))}
+          </dl>
+          <div><b>الدرس المُعطى</b><p className="meeting-review-lesson">{lesson || "لم يُدخل درس"}</p></div>
+        </Dialog>
       )}
       {modal === "review" && (
         <Dialog

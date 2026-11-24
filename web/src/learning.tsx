@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  ArrowLeft,
   BookOpen,
   CalendarDays,
   Check,
@@ -80,6 +81,100 @@ const next = (g: Group, today: string) =>
   Array.from({ length: 8 }, (_, i) => offset(today, i)).find(
     (x) => x >= g.start && (!g.end || x < g.end) && g.days.includes(dayOf(x)),
   );
+const teacherView = (c: Context) =>
+  c.center.roles.includes("teacher") &&
+  !c.center.roles.includes("admin") &&
+  !c.center.roles.includes("manager");
+
+const centerTime = (c: Context, now: Date) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: c.center.timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+
+const inSession = (slot: Pick<Group, "from" | "to">, time: string) =>
+  clock(slot.from) <= time && time < clock(slot.to);
+
+function todaySession(c: Context, group: Group, time: string) {
+  const meetings = c.education.meetings
+    .filter((m) => m.group === group.id && m.date === c.people.today)
+    .sort((a, b) => a.from.localeCompare(b.from));
+  const available = meetings.filter((m) => m.state !== "cancelled");
+  const meeting =
+    available.find((m) => m.state !== "final" && inSession(m, time)) ??
+    available.find((m) => m.state !== "final" && time < clock(m.from)) ??
+    available.at(-1);
+  return {
+    meeting,
+    scheduled: !!meeting || (!meetings.length && next(group, c.people.today) === c.people.today),
+  };
+}
+
+function GroupSchedule({ g, count }: { g: Pick<Group, "from" | "to">; count: number }) {
+  return (
+    <div className="group-meta">
+      <span><Clock3 size={16} /><bdi>{clock(g.from)} – {clock(g.to)}</bdi></span>
+      <span><Users size={16} />{fmt(count)} طالبًا</span>
+    </div>
+  );
+}
+
+function TeacherGroups({ c, groups, filters }: { c: Context; groups: Group[]; filters: ReactNode }) {
+  const today = c.people.today;
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const time = centerTime(c, now);
+  const entries = groups.map((g) => {
+    const { meeting, scheduled } = todaySession(c, g, time);
+    const count = c.people.enrollments.filter((e) => e.group === g.id && active(e, today)).length;
+    return { g, slot: meeting ?? g, meeting, count, scheduled };
+  }).sort((a, b) => a.slot.from.localeCompare(b.slot.from));
+  const live = entries.find(({ slot, meeting, scheduled }) =>
+    scheduled && meeting?.state !== "final" && inSession(slot, time),
+  );
+  const upcoming = entries.filter((entry) =>
+    entry !== live && entry.scheduled && entry.meeting?.state !== "final" && time < clock(entry.slot.from),
+  );
+  const remaining = entries.filter((entry) => entry !== live && !upcoming.includes(entry));
+  const tiles = (items: typeof entries) => items.map(({ g, slot, count }) => (
+    <a className="card teacher-group-link" href={"#group/" + g.id} key={g.id}>
+      <span>
+        <small>{unitPath(c.people.units, g.unit)}</small>
+        <h3>{g.name}</h3>
+        <GroupSchedule g={slot} count={count} />
+      </span>
+      <ChevronLeft size={18} />
+    </a>
+  ));
+  return (
+    <div className="teacher-day">
+      <header className="teacher-day-title">
+        <div><p>{date(today, true)}</p><h1 aria-label="شُعَبي"><span className="my-groups-title" aria-hidden="true">شعَبي</span></h1></div>
+        <small>{fmt(groups.length)} شعب</small>
+      </header>
+      {live ? (
+        <section className="group-hero">
+          <Badge value="active" text="الحصة الجارية" />
+          <p>{unitPath(c.people.units, live.g.unit)}</p>
+          <h2>{live.g.name}</h2>
+          <GroupSchedule g={live.slot} count={live.count} />
+          <a className="btn light" href={"#group/" + live.g.id}>فتح لوحة الشعبة <ArrowLeft size={18} /></a>
+        </section>
+      ) : !entries.some((entry) => entry.scheduled) ? (
+        <div className="card"><Empty title={groups.length ? "ما عندك حصة اليوم" : "لا توجد شعب مطابقة"} /></div>
+      ) : null}
+      {upcoming.length > 0 && <section><h2>لاحقًا اليوم</h2>{tiles(upcoming)}</section>}
+      {remaining.length > 0 && <section><h2>{live || upcoming.length ? "شعب أخرى" : "الشعب"}</h2>{tiles(remaining)}</section>}
+      {filters}
+    </div>
+  );
+}
+
 export function Groups({
   c,
   configuration = false,
@@ -91,10 +186,6 @@ export function Groups({
   const [search, setSearch] = useState("");
   const [unit, setUnit] = useState("");
   const [modal, setModal] = useState(false);
-  const teacherOnly =
-    c.center.roles.includes("teacher") &&
-    !admin(c) &&
-    !c.center.roles.includes("manager");
   function within(id: string | null): boolean {
     return (
       !unit ||
@@ -110,15 +201,19 @@ export function Groups({
         Number(next(b, c.people.today) === c.people.today) -
         Number(next(a, c.people.today) === c.people.today),
     );
+  const filters = (
+    <div className="toolbar">
+      <SearchBox value={search} onChange={setSearch} placeholder="ابحث عن شعبة" />
+      <Select options={options(c.people.units)} placeholder="جميع الوحدات" value={unit} onChange={setUnit} />
+      <span className="toolbar-count">{fmt(groups.length)} شعب</span>
+    </div>
+  );
+  if (!configuration && teacherView(c)) return <TeacherGroups c={c} groups={groups} filters={filters} />;
   return (
     <>
       <PageHead
-        title={teacherOnly ? "شُعَبي" : "الشعب"}
-        desc={
-          teacherOnly
-            ? "افتح لوحة الشعبة أو انتقل مباشرة إلى حصة اليوم."
-            : "متابعة الشعب والجداول والحضور في المركز."
-        }
+        title="الشعب"
+        desc="متابعة الشعب والجداول والحضور في المركز."
       >
         {configuration && (
           <Add
@@ -131,20 +226,7 @@ export function Groups({
           </Add>
         )}
       </PageHead>
-      <div className="toolbar">
-        <SearchBox
-          value={search}
-          onChange={setSearch}
-          placeholder="ابحث عن شعبة"
-        />
-        <Select
-          options={options(c.people.units)}
-          placeholder="جميع الوحدات"
-          value={unit}
-          onChange={setUnit}
-        />
-        <span className="toolbar-count">{fmt(groups.length)} شعب</span>
-      </div>
+      {filters}
       {groups.length ? (
         <div className="group-grid">
           {groups.map((g) => {
@@ -378,6 +460,7 @@ export function GroupDetail({ c, id }: { c: Context; id: string }) {
       m.state !== "cancelled",
   );
   const marks = recent.flatMap((x) => x.marks);
+  const { meeting: todayMeeting, scheduled: hasSession } = todaySession(c, group, centerTime(c, new Date()));
   return (
     <>
       <PageHead
@@ -387,21 +470,28 @@ export function GroupDetail({ c, id }: { c: Context; id: string }) {
           " · " +
           teacherOf(c, group.teacher)
         }
-        crumb={<a href="#groups">الشعب</a>}
+        crumb={<a href="#groups">{teacherView(c) ? "شُعَبي" : "الشعب"}</a>}
       >
         {c.user.platform && (
           <Button kind="outline" onClick={() => setEdit(true)}>
             تعديل الشعبة
           </Button>
         )}
-        {next(group, c.people.today) === c.people.today &&
-          editGroup(c, group) && (
-            <Button onClick={() => void openMeeting(c, group, c.people.today)}>
-              <CalendarDays size={17} />
-              فتح حصة اليوم
-            </Button>
-          )}
       </PageHead>
+      <section className="group-hero">
+        <p>{date(c.people.today, true)}</p>
+        <h2>{hasSession ? "حصة اليوم" : "دوام الشعبة"}</h2>
+        <GroupSchedule g={todayMeeting ?? group} count={students.length} />
+        {todayMeeting ? (
+          <a className="btn light" href={"#meeting/" + todayMeeting.id}>
+            {todayMeeting.state === "final" ? "عرض الكشف المحفوظ" : "فتح كشف الحصة"} <ArrowLeft size={18} />
+          </a>
+        ) : hasSession && editGroup(c, group) ? (
+          <Button kind="light" onClick={() => void openMeeting(c, group, c.people.today)}>
+            فتح حصة اليوم <ArrowLeft size={18} />
+          </Button>
+        ) : null}
+      </section>
       <div className="detail-summary">
         <Summary
           title="الطلاب الحاليون"

@@ -1,17 +1,17 @@
 :root {
-  font-family: "Noto Sans Arabic Variable", "Segoe UI", sans-serif;
-  color: #20352b;
-  background: #f6f8f5;
+  font-family: "Scheherazade New", serif;
+  color: var(--text);
+  background: #f6f8f4;
   font-synthesis: none;
-  font-size: 14px;
-  line-height: 1.65;
-  --text: #20352b;
-  --muted: #647469;
+  font-size: 17px;
+  line-height: 1.55;
+  --text: #183f37;
+  --muted: #52695c;
   --green: #285a46;
-  --deep: #183b32;
-  --line: #e3eae3;
+  --deep: #194638;
+  --line: #dce3d9;
   --paper: #fff;
-  --mint: #e6f2e9;
+  --mint: #e3eedd;
   --sand: #f3eedd;
   --radius: 15px;
   --shadow: 0 2px 3px #244d3510;
@@ -1850,4 +1850,273 @@ dialog::backdrop {
 .curriculum-chapters {
   margin: 0 0 12px;
   padding-inline-start: 22px;
+}
+
+.sidebar,
+.auth-art {
+  background-color: var(--deep);
+}
+.topbar,
+.dialog-head,
+.dialog-foot {
+  background: #fcfcf8;
+}
+.nav-section a,
+.btn,
+.tabs button,
+td,
+th,
+.field > span {
+  font-size: 15px;
+}
+.btn {
+  white-space: normal;
+  min-height: 44px;
+}
+.btn.primary {
+  background: var(--deep);
+}
+.btn.light {
+  background: #e9edcf;
+}
+.page-head h1,
+.teacher-day-title h1 {
+  font-size: clamp(32px, 4vw, 44px);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.page-head > div,
+.card-head > div,
+.summary > div {
+  min-width: 0;
+}
+.page-head p,
+.card-head p,
+.summary small,
+.group-meta,
+.crumb {
+  font-size: 14px;
+}
+.page-head p,
+.card-head p,
+.summary small,
+.meeting-review-lesson {
+  overflow-wrap: anywhere;
+}
+.section-title h2,
+.card-head h2,
+.panel > h2,
+.dialog-head h2 {
+  font-size: 21px;
+}
+.teacher-day,
+.teacher-day section:not(.group-hero) {
+  display: grid;
+  gap: 10px;
+}
+.teacher-day-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+.teacher-day-title p,
+.teacher-day-title small,
+.teacher-group-link small {
+  font-size: 14px;
+  color: var(--muted);
+}
+.my-groups-title {
+  position: relative;
+  display: inline-block;
+}
+.my-groups-title::after {
+  content: "\200d\064f";
+  position: absolute;
+  inset-inline-start: 0.30em;
+  inset-block-start: 0;
+  pointer-events: none;
+}
+.group-hero {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--deep);
+  color: #fffdf1;
+  padding: 19px 20px;
+  margin-bottom: 14px;
+}
+.group-hero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 38px auto -60px 24px;
+  width: 92px;
+  border: 1px solid #dbe0ac99;
+  border-radius: 70% 70% 0 0;
+  box-shadow: 0 0 0 5px #194638, 0 0 0 6px #dbe0ac66,
+    0 0 0 11px #194638, 0 0 0 12px #dbe0ac44, 0 0 0 17px #194638,
+    0 0 0 18px #dbe0ac33;
+  transform: perspective(190px) rotateY(16deg);
+}
+.group-hero p,
+.group-hero .group-meta {
+  color: #dbe7d8;
+}
+.group-hero h2 {
+  font-size: clamp(24px, 3vw, 32px);
+  overflow-wrap: anywhere;
+}
+.group-hero .badge {
+  margin-bottom: 10px;
+}
+.group-hero .btn {
+  justify-content: space-between;
+  width: min(100%, 420px);
+  margin-top: 13px;
+}
+.teacher-group-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+}
+.teacher-group-link h3 {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.teacher-mobile-nav,
+.meeting-cards {
+  display: none;
+}
+.meeting-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.meeting-review > div {
+  border-radius: 9px;
+  padding: 9px 14px;
+  background: var(--mint);
+}
+.meeting-review dd {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+.meeting-review-lesson {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 705px) {
+  .content,
+  .standalone {
+    padding-inline: 16px;
+  }
+  .content {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+  .app-shell:has(.teacher-mobile-nav) .content {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+  .topbar {
+    height: auto;
+    min-height: 62px;
+    padding-block-start: env(safe-area-inset-top);
+  }
+  .top-actions {
+    gap: 3px;
+  }
+  .top-actions .divider,
+  .account > span:not(.avatar) {
+    display: none;
+  }
+  .icon-button,
+  .account,
+  .tabs button,
+  .crumb a {
+    min-height: 44px;
+  }
+  .icon-button {
+    min-width: 44px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+    min-height: 44px;
+  }
+  .teacher-mobile-nav {
+    position: fixed;
+    z-index: 3;
+    inset: auto 0 0;
+    display: flex;
+    gap: 4px;
+    background: #fcfcf8;
+    border-top: 1px solid var(--line);
+    padding: 5px 12px calc(5px + env(safe-area-inset-bottom));
+  }
+  .teacher-mobile-nav a {
+    display: grid;
+    justify-items: center;
+    flex: 1;
+    font-size: 14px;
+    min-height: 48px;
+  }
+  .teacher-mobile-nav span {
+    border-radius: 14px;
+    padding: 3px 13px;
+  }
+  .teacher-mobile-nav [aria-current] span {
+    background: var(--mint);
+  }
+  .main-shell:has(.teacher-mobile-nav) .sticky-actions {
+    bottom: calc(59px + env(safe-area-inset-bottom));
+  }
+  .sticky-actions > .btn {
+    flex: 1 1 auto;
+  }
+  .meeting-rows {
+    display: none;
+  }
+  .meeting-cards {
+    display: block;
+    padding: 0 14px;
+  }
+  .meeting-cards details + details {
+    border-top: 1px solid var(--line);
+  }
+  .meeting-cards summary {
+    display: flex;
+    align-items: center;
+    min-height: 49px;
+    gap: 7px;
+    cursor: pointer;
+  }
+  .meeting-cards summary::-webkit-details-marker {
+    display: none;
+  }
+  .meeting-cards summary strong {
+    margin-inline-end: auto;
+    overflow-wrap: anywhere;
+  }
+  .meeting-cards summary svg {
+    flex: none;
+  }
+  .meeting-cards details[open] summary svg {
+    transform: rotate(180deg);
+  }
+  .meeting-cards .form-grid {
+    padding-bottom: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  dialog .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
