@@ -283,7 +283,7 @@ try {
     .getByRole("link", { name: "تفاصيل الدورة", exact: false })
     .first()
     .click();
-  await page.waitForURL("**/#recitation-course/*");
+  await page.waitForURL(url => url.pathname === "/c/e751f402-dbd9-449f-9d01-40b525f06c29" && url.hash.startsWith("#recitation-course/"));
   assert.equal(
     await page.locator(".nav-section a.selected").getAttribute("href"),
     "#recitation",
